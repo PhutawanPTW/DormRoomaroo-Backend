@@ -95,6 +95,7 @@ exports.googleLogin = async (req, res) => {
         // Map DB fields (snake_case) to frontend UserProfile (camelCase)
         const userProfile = {
           ...mapUserRowToProfile(userInDb),
+          id: userInDb.id,
           needsProfileSetup: needsProfileSetup,
         };
 
@@ -207,7 +208,7 @@ exports.registerWithEmail = async (req, res) => {
 
     const userProfile = {
       ...mapUserRowToProfile(newUser),
-      // ใช้ memberType จาก input โดยตรง แทนที่จะใช้ค่าจาก database เพื่อให้แน่ใจว่าถูกต้อง
+      id: newUser.id,
       memberType: memberType,
       needsProfileSetup: false
     };
@@ -262,7 +263,10 @@ exports.registerWithEmail = async (req, res) => {
 exports.fetchCurrentUserProfile = async (req, res) => {
     try {
         const firebase_uid = req.user.uid;
+        console.log('Fetching profile for UID:', firebase_uid);
+        
         const user = await userService.getUserByFirebaseUid(firebase_uid);
+        console.log('User found in database:', !!user);
 
         let calculatedNeedsProfileSetup = false;
         if (user) {
@@ -281,6 +285,7 @@ exports.fetchCurrentUserProfile = async (req, res) => {
 
         const userProfile = {
             uid: user ? user.firebase_uid : firebase_uid,
+            id: user ? user.id : null,
             username: user ? user.username : null,
             email: user ? user.email : req.user.email || null,
             displayName: user ? user.display_name : req.user.name || null,
@@ -290,6 +295,13 @@ exports.fetchCurrentUserProfile = async (req, res) => {
             residenceDormId: user ? user.residence_dorm_id || null : null,
             needsProfileSetup: calculatedNeedsProfileSetup
         };
+        
+        console.log('Sending user profile:', {
+            uid: userProfile.uid,
+            memberType: userProfile.memberType,
+            needsProfileSetup: userProfile.needsProfileSetup
+        });
+        
         res.json(userProfile);
     } catch (error) {
         console.error('Error fetching current user profile:', error);
@@ -404,6 +416,7 @@ exports.completeUserProfile = async (req, res) => {
 
     const userProfile = {
       ...mapUserRowToProfile(updatedUser),
+      id: updatedUser.id,
       needsProfileSetup: calculatedNeedsProfileSetup
     };
 
@@ -592,5 +605,30 @@ exports.changeAdminPassword = async (req, res) => {
   } catch (error) {
     console.error('Error changing admin password:', error);
     res.status(500).json({ message: 'เกิดข้อผิดพลาดในการเปลี่ยนรหัสผ่าน', error: error.message });
+  }
+};
+
+// เพิ่ม endpoint สำหรับตรวจสอบความถูกต้องของ token
+exports.verifyToken = async (req, res) => {
+  try {
+    // ถ้า middleware verifyFirebaseToken ผ่านมาถึงจุดนี้ แสดงว่า token ยังใช้งานได้
+    const firebase_uid = req.user.uid;
+    const tokenExpiry = new Date(req.user.exp * 1000);
+    const now = new Date();
+    const timeLeft = Math.floor((tokenExpiry - now) / 1000); // เวลาที่เหลือเป็นวินาที
+    
+    console.log(`Token verification successful for UID: ${firebase_uid}`);
+    console.log(`Token expires at: ${tokenExpiry.toISOString()}`);
+    console.log(`Time left: ${timeLeft} seconds`);
+    
+    res.json({
+      valid: true,
+      uid: firebase_uid,
+      expiresAt: tokenExpiry,
+      timeLeft: timeLeft
+    });
+  } catch (error) {
+    console.error('Error in token verification endpoint:', error);
+    res.status(500).json({ message: 'Internal Server Error', error: error.message });
   }
 };

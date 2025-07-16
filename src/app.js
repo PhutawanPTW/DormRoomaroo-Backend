@@ -13,6 +13,8 @@ const PORT = process.env.PORT || 3000;
 const authRoutes = require('./routes/auth');
 const dormitoryRoutes = require('./routes/dormitoryRoutes');
 const zoneRoutes = require('./routes/zoneRoutes');
+const adminDormitoryRoutes = require('./routes/adminDormitoryRoutes');
+const addDormitoryRoutes = require('./routes/addDormitoryRoutes');
 
 // Middleware
 app.use(cors());
@@ -29,6 +31,8 @@ app.get('/', (req, res) => {
 app.use('/api/auth', authRoutes);
 app.use('/api/dormitories', dormitoryRoutes);
 app.use('/api/zones', zoneRoutes);
+app.use('/api/admin/dormitories', adminDormitoryRoutes);
+app.use('/api/add-dormitory', addDormitoryRoutes);
 
 // Start Server
 app.listen(PORT, () => {

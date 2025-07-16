@@ -1,40 +1,56 @@
 // src/routes/dormitoryRoutes.js
 const express = require('express');
 const router = express.Router();
+const multer = require('multer');
 const dormitoryController = require('../controllers/dormitoryController');
+const addDormitoryController = require('../controllers/AddDormitoryController');
 const { verifyFirebaseToken, verifyAdminToken } = require('../middleware/authMiddleware');
 
-// Routes สำหรับหอพัก
-router.get('/', dormitoryController.getAllDormitories); // ดึงรายการหอพักทั้งหมด (ไม่ต้อง auth)
+// Configure multer for image uploads
+const upload = multer({
+    storage: multer.memoryStorage(),
+    limits: {
+        fileSize: 5 * 1024 * 1024, // 5MB limit per file
+        files: 10 // Maximum 10 files
+    },
+    fileFilter: (req, file, cb) => {
+        if (file.mimetype.startsWith('image/')) {
+            cb(null, true);
+        } else {
+            cb(new Error('Only image files are allowed!'), false);
+        }
+    }
+});
+
+// ===== ZONE ROUTES =====
+router.get('/zones', dormitoryController.getAllZones);
+
+// ===== PUBLIC DORMITORY ROUTES =====
+router.get('/user/:userId', dormitoryController.getDormitoriesByUserId); // ดึงรายการหอพักทั้งหมดของ userId
+router.get('/', dormitoryController.getAllDormitories); // ดึงรายการหอพักทั้งหมด
 router.get('/recommended', dormitoryController.getRecommendedDormitories);
 router.get('/latest', dormitoryController.getLatestDormitories);
-router.get('/:dormId', dormitoryController.getDormitoryById); // ดึงข้อมูลหอพักตาม ID (ไม่ต้อง auth)
+router.get('/amenities/all', dormitoryController.getAllAmenities); // ดึงรายการสิ่งอำนวยความสะดวกทั้งหมด
+router.get('/room-types/options', dormitoryController.getRoomTypeOptions); // ดึงตัวเลือกประเภทห้อง
+router.get('/:dormId', dormitoryController.getDormitoryById); // ดึงข้อมูลหอพักตาม ID
 
-// Comment out routes that are not implemented yet
-/*
+// ===== AUTHENTICATED ROUTES =====
+router.post('/request-membership', verifyFirebaseToken, dormitoryController.requestMembership);
+router.get('/my/requests', verifyFirebaseToken, dormitoryController.getUserMembershipRequests);
+router.put('/select', verifyFirebaseToken, dormitoryController.selectCurrentDormitory);
+
+// ===== OWNER ROUTES =====
+router.post('/submit', 
+    verifyFirebaseToken, 
+    upload.array('images', 10), 
+    addDormitoryController.submitDormitory
+);
+router.get('/my/submissions', verifyFirebaseToken, addDormitoryController.getMySubmissions);
+
+// ===== IMAGE & ROOM TYPE ROUTES =====
 router.get('/:dormId/images', dormitoryController.getDormitoryImages);
-router.get('/:dormId/room-types', dormitoryController.getRoomTypesByDormId);
-
-// Routes สำหรับจัดการประเภทห้อง (ต้องผ่านการ authenticate)
 router.post('/:dormId/room-types', verifyFirebaseToken, dormitoryController.createRoomType);
 router.put('/room-types/:roomTypeId', verifyFirebaseToken, dormitoryController.updateRoomType);
 router.delete('/room-types/:roomTypeId', verifyFirebaseToken, dormitoryController.deleteRoomType);
-
-// Routes สำหรับแอดมิน
-router.get('/admin/dormitories', verifyAdminToken, dormitoryController.getAllDormitoriesAdmin);
-router.get('/admin/dormitories/:dormId', verifyAdminToken, dormitoryController.getDormitoryDetailsByAdmin);
-router.put('/admin/dormitories/:dormId', verifyAdminToken, dormitoryController.updateDormitoryByAdmin);
-router.put('/admin/dormitories/:dormId/approve', verifyAdminToken, dormitoryController.approveDormitory);
-router.put('/admin/dormitories/:dormId/reject', verifyAdminToken, dormitoryController.rejectDormitory);
-router.delete('/admin/dormitories/:dormId', verifyAdminToken, dormitoryController.deleteDormitoryByAdmin);
-*/
-
-// Routes ที่ต้อง authentication
-router.post('/request-membership', verifyFirebaseToken, dormitoryController.requestMembership); // สมัครเป็นสมาชิก
-router.get('/my/requests', verifyFirebaseToken, dormitoryController.getUserMembershipRequests); // ดูคำขอของตัวเอง
-router.put('/select', verifyFirebaseToken, dormitoryController.selectCurrentDormitory); // เลือกหอพักปัจจุบัน
-
-// Routes สำหรับสิ่งอำนวยความสะดวก
-router.get('/amenities/all', dormitoryController.getAllAmenities); // ดึงรายการสิ่งอำนวยความสะดวกทั้งหมด
 
 module.exports = router;

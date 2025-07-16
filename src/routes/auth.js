@@ -25,6 +25,9 @@ router.get('/me', verifyFirebaseToken, authController.fetchCurrentUserProfile);
 // Route สำหรับอัปเดตข้อมูลโปรไฟล์ (ต้องมี Token)
 router.put('/me', verifyFirebaseToken, authController.completeUserProfile);
 
+// Route สำหรับตรวจสอบความถูกต้องของ token
+router.get('/verify-token', verifyFirebaseToken, authController.verifyToken);
+
 // Route สำหรับดึงข้อมูลผู้ใช้ทั้งหมด (ต้องมี Token)
 router.get('/users', authController.getAllUsers);
 

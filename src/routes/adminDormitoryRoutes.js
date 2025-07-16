@@ -1,0 +1,14 @@
+const express = require('express');
+const router = express.Router();
+const adminDormitoryController = require('../controllers/adminDormitoryController');
+const { verifyAdminToken } = require('../middleware/authMiddleware');
+
+// ===== ADMIN ROUTES =====
+router.get('/all', verifyAdminToken, adminDormitoryController.getAllDormitoriesAdmin);
+router.get('/:dormId', verifyAdminToken, adminDormitoryController.getDormitoryDetailsByAdmin);
+router.put('/:dormId/approve', verifyAdminToken, adminDormitoryController.approveDormitory);
+router.put('/:dormId/reject', verifyAdminToken, adminDormitoryController.rejectDormitory);
+router.put('/:dormId', verifyAdminToken, adminDormitoryController.updateDormitoryByAdmin);
+router.delete('/:dormId', verifyAdminToken, adminDormitoryController.deleteDormitoryByAdmin);
+
+module.exports = router; 

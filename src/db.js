@@ -2,18 +2,15 @@
 const { Pool } = require('pg');
 require('dotenv').config();
 
+console.log('Database URL:', process.env.DATABASE_URL); // เพิ่มบรรทัดนี้
+
 if (!process.env.DATABASE_URL) {
   console.error("Error: DATABASE_URL is not set in .env file.");
   process.exit(1);
 }
 
 const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  // สำหรับการ deploy บนบาง environment เช่น Heroku อาจต้องใช้ SSL
-  // แต่ถ้า local development หรือ Docker ที่ไม่ได้ใช้ SSL ให้คอมเมนต์ออก
-  // ssl: {
-  //   rejectUnauthorized: false
-  // }
+  connectionString: process.env.DATABASE_URL
 });
 
 pool.on('connect', () => {

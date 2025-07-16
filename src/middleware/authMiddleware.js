@@ -20,17 +20,33 @@ async function verifyFirebaseToken(req, res, next) {
   
   try {
     console.log('Attempting to verify token...');
-    const decodedToken = await firebaseAdmin.auth().verifyIdToken(idToken);
+    const decodedToken = await firebaseAdmin.auth().verifyIdToken(idToken, true); // เพิ่ม true เพื่อบังคับให้ตรวจสอบ token ทุกครั้ง
     console.log('Token verified successfully for user:', decodedToken.uid);
+    console.log('Token expiration time:', new Date(decodedToken.exp * 1000).toISOString());
     req.user = decodedToken; // เก็บ decoded token ไว้ใน req.user
     next(); // ไปยัง Middleware หรือ Controller ถัดไป
   } catch (error) {
     console.error('Error verifying Firebase ID token:', error);
     // แจ้ง Error ตามประเภท เช่น expired token
     if (error.code === 'auth/id-token-expired') {
-      return res.status(401).json({ error: 'Unauthorized: ID token has expired.' });
+      return res.status(401).json({ 
+        error: 'Unauthorized: ID token has expired.', 
+        code: 'token-expired',
+        message: 'Your session has expired. Please login again.'
+      });
     }
-    return res.status(401).json({ error: 'Unauthorized: Invalid ID token.', details: error.message });
+    if (error.code === 'auth/id-token-revoked') {
+      return res.status(401).json({ 
+        error: 'Unauthorized: ID token has been revoked.', 
+        code: 'token-revoked',
+        message: 'Your session has been revoked. Please login again.'
+      });
+    }
+    return res.status(401).json({ 
+      error: 'Unauthorized: Invalid ID token.', 
+      code: 'token-invalid',
+      details: error.message 
+    });
   }
 }
 
@@ -80,7 +96,18 @@ function verifyAdminToken(req, res, next) {
     next();
   } catch (error) {
     console.error('Error verifying admin token:', error);
-    return res.status(401).json({ error: 'Unauthorized: Invalid admin token.', details: error.message });
+    if (error.name === 'TokenExpiredError') {
+      return res.status(401).json({ 
+        error: 'Unauthorized: Token expired', 
+        code: 'token-expired',
+        message: 'Your session has expired. Please login again.'
+      });
+    }
+    return res.status(401).json({ 
+      error: 'Unauthorized: Invalid admin token.', 
+      code: 'token-invalid',
+      details: error.message 
+    });
   }
 }
 
