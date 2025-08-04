@@ -61,21 +61,15 @@ exports.getDormitoryById = async (req, res) => {
   try {
     const { dormId } = req.params;
 
-    // 1. ดึงข้อมูลพื้นฐานของหอพัก
+    // 1. ดึงข้อมูลพื้นฐานของหอพัก (ลบ contact_info ออก)
     const dormQuery = `
-            SELECT 
-                d.*,
-                z.zone_name,
-                c.manager_name,
-                c.primary_phone,
-                c.secondary_phone,
-                c.line_id,
-                c.email as contact_email
-            FROM dormitories d
-            LEFT JOIN zones z ON d.zone_id = z.zone_id
-            LEFT JOIN contact_info c ON d.contact_id = c.contact_id
-            WHERE d.dorm_id = $1
-        `;
+      SELECT 
+        d.*,
+        z.zone_name
+      FROM dormitories d
+      LEFT JOIN zones z ON d.zone_id = z.zone_id
+      WHERE d.dorm_id = $1
+    `;
 
     const dormResult = await pool.query(dormQuery, [dormId]);
 
@@ -170,7 +164,7 @@ exports.requestMembership = async (req, res) => {
     // สร้างคำขอใหม่
     const insertQuery = `
             INSERT INTO member_requests (user_id, dorm_id, request_date, status)
-            VALUES ($1, $2, CURRENT_TIMESTAMP, 'รอพิจารณา')
+            VALUES ($1, $2, CURRENT_TIMESTAMP, 'pending')
             RETURNING *
         `;
 
@@ -260,7 +254,7 @@ exports.getRecommendedDormitories = async (req, res) => {
       SELECT d.*, z.zone_name, ${MAIN_IMAGE_SUBQUERY}
       FROM dormitories d
       LEFT JOIN zones z ON d.zone_id = z.zone_id
-      WHERE d.approval_status = 'อนุมัติแล้ว'
+      WHERE d.approval_status = 'approved'
       ORDER BY RANDOM()`;
     const values = [];
     if (limit) {
@@ -283,7 +277,7 @@ exports.getLatestDormitories = async (req, res) => {
       SELECT d.*, z.zone_name, ${MAIN_IMAGE_SUBQUERY}
       FROM dormitories d
       LEFT JOIN zones z ON d.zone_id = z.zone_id
-      WHERE d.approval_status = 'อนุมัติแล้ว'
+      WHERE d.approval_status = 'approved'
       ORDER BY d.updated_date DESC NULLS LAST`;
     const values = [];
     if (limit) {
@@ -308,6 +302,35 @@ exports.getDormitoryImages = async (req, res) => {
     res.json(result.rows);
   } catch (error) {
     console.error('Error fetching dormitory images:', error);
+    res.status(500).json({ message: 'Internal Server Error', error: error.message });
+  }
+};
+
+// ดึงรายการ room types ของหอพัก
+exports.getRoomTypesByDormId = async (req, res) => {
+  try {
+    const { dormId } = req.params;
+    
+    const query = `
+      SELECT 
+        room_type_id,
+        room_name,
+        bed_type,
+        monthly_price,
+        daily_price,
+        summer_price,
+        price_type,
+        description,
+        max_occupancy
+      FROM room_types 
+      WHERE dorm_id = $1
+      ORDER BY monthly_price ASC
+    `;
+    
+    const result = await pool.query(query, [dormId]);
+    res.json(result.rows);
+  } catch (error) {
+    console.error('Error fetching room types by dorm ID:', error);
     res.status(500).json({ message: 'Internal Server Error', error: error.message });
   }
 };
@@ -560,28 +583,33 @@ async function updateDormitoryPriceRange(dormId) {
 // exports.deleteDormitoryByAdmin = ...
 // exports.getDormitoryDetailsByAdmin = ...
 
-// ดึงรายการหอพักทั้งหมดของ userId
+// แก้ไข exports.getDormitoriesByUserId ใน dormitoryController.js
 exports.getDormitoriesByUserId = async (req, res) => {
   try {
     const { userId } = req.params;
-
     const query = `
-          SELECT 
-              d.*,
-              z.zone_name,
-              c.manager_name,
-              c.primary_phone,
-              c.secondary_phone,
-              c.line_id,
-              c.email as contact_email,
-              (SELECT image_url FROM dormitory_images WHERE dorm_id = d.dorm_id LIMIT 1) as main_image_url
-          FROM dormitories d
-          LEFT JOIN zones z ON d.zone_id = z.zone_id
-          LEFT JOIN contact_info c ON d.contact_id = c.contact_id
-          WHERE d.owner_id = $1
-          ORDER BY d.created_date DESC
-      `;
-
+      SELECT 
+        d.dorm_id,
+        d.dorm_name,
+        d.address,
+        d.dorm_description,
+        d.latitude,
+        d.longitude,
+        d.min_price,
+        d.max_price,
+        d.approval_status,
+        d.created_date,
+        d.updated_date,
+        z.zone_name,
+        (SELECT image_url FROM dormitory_images 
+         WHERE dorm_id = d.dorm_id 
+         ORDER BY is_primary DESC, upload_date DESC, image_id ASC 
+         LIMIT 1) AS main_image_url
+      FROM dormitories d
+      LEFT JOIN zones z ON d.zone_id = z.zone_id
+      WHERE d.owner_id = $1
+      ORDER BY d.created_date DESC
+    `;
     const result = await pool.query(query, [userId]);
     res.json(result.rows);
   } catch (error) {
@@ -602,7 +630,7 @@ exports.getAllDormitories = async (req, res) => {
         ${MAIN_IMAGE_SUBQUERY}
       FROM dormitories d
       LEFT JOIN zones z ON d.zone_id = z.zone_id
-      WHERE d.approval_status = 'อนุมัติแล้ว'
+      WHERE d.approval_status = 'approved'
     `;
 
     const values = [];

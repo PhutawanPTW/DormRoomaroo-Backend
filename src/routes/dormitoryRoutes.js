@@ -49,6 +49,7 @@ router.get('/my/submissions', verifyFirebaseToken, addDormitoryController.getMyS
 
 // ===== IMAGE & ROOM TYPE ROUTES =====
 router.get('/:dormId/images', dormitoryController.getDormitoryImages);
+router.get('/:dormId/room-types', dormitoryController.getRoomTypesByDormId); // เพิ่มเส้นใหม่
 router.post('/:dormId/room-types', verifyFirebaseToken, dormitoryController.createRoomType);
 router.put('/room-types/:roomTypeId', verifyFirebaseToken, dormitoryController.updateRoomType);
 router.delete('/room-types/:roomTypeId', verifyFirebaseToken, dormitoryController.deleteRoomType);

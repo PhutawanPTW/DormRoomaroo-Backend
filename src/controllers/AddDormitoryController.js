@@ -114,7 +114,7 @@ exports.addDormitory = async (req, res) => {
             zoneId, 
             address.trim(), 
             description.trim(), 
-            'รอพิจารณา', 
+            'pending', 
             userId
         ]);
 
@@ -429,7 +429,7 @@ exports.submitDormitory = async (req, res) => {
             zoneId, 
             address.trim(), 
             description.trim(), 
-            'รอพิจารณา', 
+            'pending', 
             userId
         ]);
 

@@ -50,7 +50,7 @@ exports.approveDormitory = async (req, res) => {
 
     const updateQuery = `
       UPDATE dormitories
-      SET approval_status = 'อนุมัติแล้ว', updated_date = CURRENT_TIMESTAMP
+      SET approval_status = 'approved', updated_date = CURRENT_TIMESTAMP
       WHERE dorm_id = $1
       RETURNING *
     `;
@@ -83,7 +83,7 @@ exports.rejectDormitory = async (req, res) => {
 
     const updateQuery = `
       UPDATE dormitories
-      SET approval_status = 'ไม่อนุมัติ', 
+      SET approval_status = 'rejected', 
           rejection_reason = $2,
           updated_date = CURRENT_TIMESTAMP
       WHERE dorm_id = $1
