@@ -87,7 +87,7 @@ exports.googleLogin = async (req, res) => {
     console.error('Detailed Google Login Error:', error);
     if (error.code) console.error('Error code:', error.code);
     if (error.stack) console.error('Error stack:', error.stack);
-    res.status(500).json({ message: 'Internal Server Error', error: error.message });
+    res.status(500).json({ message: 'เกิดข้อผิดพลาดภายในเซิร์ฟเวอร์', error: error.message });
   }
 };
 
@@ -99,7 +99,7 @@ exports.registerWithEmail = async (req, res) => {
   const firebase_uid = req.user?.uid;
   if (!firebase_uid) {
     console.error('Registration Error: Firebase UID is missing from request.');
-    return res.status(401).json({ message: 'Unauthorized: Firebase UID not found.' });
+    return res.status(401).json({ message: 'ไม่ได้รับอนุญาต: ไม่พบ Firebase UID' });
   }
 
   // *** เพิ่มการ destructure ข้อมูล owner fields ***
@@ -120,25 +120,25 @@ exports.registerWithEmail = async (req, res) => {
   // *** ปรับปรุงการตรวจสอบ required fields ***
   if (!email || !fullName || !memberType) {
     console.error('Registration Error: Missing basic required fields.');
-    return res.status(400).json({ message: 'Missing required fields: email, fullName, memberType.' });
+    return res.status(400).json({ message: 'กรุณากรอกข้อมูลที่จำเป็น: อีเมล, ชื่อเต็ม, ประเภทผู้ใช้' });
   }
 
   // ตรวจสอบ required fields ตาม memberType
   if (memberType === 'member') {
     if (!phoneNumber || !dormitoryParam) {
       console.error('Registration Error: Missing required fields for member.');
-      return res.status(400).json({ message: 'Missing required fields for member: phoneNumber and dormitory.' });
+      return res.status(400).json({ message: 'กรุณากรอกข้อมูลที่จำเป็นสำหรับสมาชิก: เบอร์โทรศัพท์และหอพัก' });
     }
   } else if (memberType === 'owner') {
     if (!managerName) {
       console.error('Registration Error: Missing required fields for owner.');
-      return res.status(400).json({ message: 'Missing required fields for owner: managerName.' });
+      return res.status(400).json({ message: 'กรุณากรอกข้อมูลที่จำเป็นสำหรับเจ้าของ: ชื่อผู้จัดการ' });
     }
   }
 
   if (!['member', 'owner'].includes(memberType)) {
     console.error('Registration Error: Invalid memberType:', memberType);
-    return res.status(400).json({ message: 'Invalid memberType. Must be "member" or "owner".' });
+    return res.status(400).json({ message: 'ประเภทผู้ใช้ไม่ถูกต้อง ต้องเป็น "member" หรือ "owner"' });
   }
 
   let photoUrl = null;
@@ -177,7 +177,7 @@ exports.registerWithEmail = async (req, res) => {
 
       if (isNaN(dormitoryIdFinal)) {
         await client.query('ROLLBACK');
-        return res.status(400).json({ message: 'Invalid dormitory ID format' });
+        return res.status(400).json({ message: 'รูปแบบ ID หอพักไม่ถูกต้อง' });
       }
     }
 
@@ -248,7 +248,7 @@ exports.registerWithEmail = async (req, res) => {
 
     await client.query('COMMIT');
     res.status(201).json({
-      message: 'User registered successfully!',
+      message: 'ลงทะเบียนผู้ใช้สำเร็จ!',
       user: userProfile
     });
   } catch (error) {
@@ -257,7 +257,7 @@ exports.registerWithEmail = async (req, res) => {
     if (error.code === '23505') {
       return res.status(409).json({ message: 'อีเมลนี้ถูกใช้งานแล้ว' });
     }
-    res.status(400).json({ message: 'Failed to register user.', error: error.message });
+    res.status(400).json({ message: 'ไม่สามารถลงทะเบียนผู้ใช้ได้', error: error.message });
   } finally {
     client.release();
   }
@@ -308,7 +308,7 @@ exports.fetchCurrentUserProfile = async (req, res) => {
     res.json(userProfile);
   } catch (error) {
     console.error('Error fetching current user profile:', error);
-    res.status(500).json({ message: 'Internal Server Error', error: error.message });
+    res.status(500).json({ message: 'เกิดข้อผิดพลาดภายในเซิร์ฟเวอร์', error: error.message });
   }
 };
 
@@ -453,7 +453,7 @@ exports.getDormitoryOptions = async (req, res) => {
     res.json(result.rows);
   } catch (error) {
     console.error('Error fetching dormitory options:', error);
-    res.status(500).json({ message: 'Internal Server Error', error: error.message });
+    res.status(500).json({ message: 'เกิดข้อผิดพลาดภายในเซิร์ฟเวอร์', error: error.message });
   }
 };
 
@@ -461,13 +461,13 @@ exports.getAllUsers = async (req, res) => {
   try {
     // TODO: Implement authorization check here (e.g., only 'admin' can access)
     if (req.user.memberType !== 'admin') { // Assuming req.user from verifyFirebaseToken has memberType
-      return res.status(403).json({ message: 'Forbidden: Only administrators can access this resource.' });
+      return res.status(403).json({ message: 'ไม่มีสิทธิ์: เฉพาะผู้ดูแลระบบเท่านั้นที่สามารถเข้าถึงทรัพยากรนี้ได้' });
     }
     const pool = require('../db');
     const result = await pool.query('SELECT * FROM users');
     res.json(result.rows);
   } catch (error) {
-    res.status(500).json({ message: 'Error fetching users', error: error.message });
+    res.status(500).json({ message: 'เกิดข้อผิดพลาดในการดึงข้อมูลผู้ใช้', error: error.message });
   }
 };
 
@@ -633,6 +633,6 @@ exports.verifyToken = async (req, res) => {
     });
   } catch (error) {
     console.error('Error in token verification endpoint:', error);
-    res.status(500).json({ message: 'Internal Server Error', error: error.message });
+    res.status(500).json({ message: 'เกิดข้อผิดพลาดภายในเซิร์ฟเวอร์', error: error.message });
   }
 };

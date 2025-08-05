@@ -53,9 +53,20 @@ async function findOrCreateUser({ firebase_uid, email, displayName, photoURL, me
         }
         return existingUser;
     }
-    
-    // ถ้าไม่พบผู้ใช้ ให้ return null
-    return null;
+
+    // ถ้าไม่พบผู้ใช้ ให้สร้างผู้ใช้ใหม่
+    return await createNewUser({
+        firebase_uid,
+        email,
+        displayName,
+        photoUrl,
+        memberType,
+        phoneNumber,
+        residenceDormId,
+        managerName,
+        secondaryPhone,
+        lineId
+    });
 }
 
 async function upsertUserWithEmail({
@@ -86,9 +97,20 @@ async function upsertUserWithEmail({
         };
         return await updateProfile(firebase_uid, updates);
     }
-    
-    // ถ้าไม่พบผู้ใช้ ให้ return null
-    return null;
+
+    // ถ้าไม่พบผู้ใช้ ให้สร้างผู้ใช้ใหม่
+    return await createNewUser({
+        firebase_uid,
+        email,
+        displayName,
+        photoUrl,
+        memberType,
+        phoneNumber,
+        residenceDormId,
+        managerName,
+        secondaryPhone,
+        lineId
+    });
 }
 
 
