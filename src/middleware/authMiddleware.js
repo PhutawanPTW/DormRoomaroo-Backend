@@ -9,20 +9,17 @@ const ADMIN_JWT_SECRET = 'DormRoomaroo-Admin-Secret-Key-2024';
 async function verifyFirebaseToken(req, res, next) {
   const authHeader = req.headers.authorization;
   
-  console.log('Auth header present:', !!authHeader);
+  // Minimal auth header validation logs (debug removed)
   
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
     return res.status(401).json({ error: 'Unauthorized: No token provided or malformed.' });
   }
 
   const idToken = authHeader.split(' ')[1]; // ดึง ID Token ออกมา
-  console.log('Token received, length:', idToken.length);
+  // Avoid logging tokens
   
   try {
-    console.log('Attempting to verify token...');
-    const decodedToken = await firebaseAdmin.auth().verifyIdToken(idToken, true); // เพิ่ม true เพื่อบังคับให้ตรวจสอบ token ทุกครั้ง
-    console.log('Token verified successfully for user:', decodedToken.uid);
-    console.log('Token expiration time:', new Date(decodedToken.exp * 1000).toISOString());
+    const decodedToken = await firebaseAdmin.auth().verifyIdToken(idToken, true);
     req.user = decodedToken; // เก็บ decoded token ไว้ใน req.user
     next(); // ไปยัง Middleware หรือ Controller ถัดไป
   } catch (error) {

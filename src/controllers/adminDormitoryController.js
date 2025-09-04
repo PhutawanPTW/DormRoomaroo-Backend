@@ -1,255 +1,152 @@
-const pool = require('../db');
+// src/controllers/adminDormitoryController.js
+const pool = require("../db");
 
-const MAIN_IMAGE_SUBQUERY = `(
-  SELECT image_url FROM dormitory_images
-  WHERE dorm_id = d.dorm_id
-  ORDER BY is_primary DESC, upload_date DESC, image_id ASC
-  LIMIT 1
-) AS main_image_url`;
-
-// ดึงรายการหอพักทั้งหมดสำหรับแอดมิน (รวมถึงหอพักที่ยังไม่ได้อนุมัติ)
-exports.getAllDormitoriesAdmin = async (req, res) => {
+// ฟังก์ชันสำหรับดูรายการหอพักทั้งหมด (สำหรับผู้ดูแลระบบ)
+exports.getAllDormitories = async (req, res) => {
   try {
-    const { status } = req.query;
+    const query = `
+            SELECT 
+                d.dorm_id,
+                d.dorm_name,
+                d.address,
+                d.approval_status,
+                d.created_date AS submitted_date,
+                z.zone_name,
+                (SELECT image_url FROM dormitory_images WHERE dorm_id = d.dorm_id AND is_primary = true LIMIT 1) as main_image_url
+            FROM dormitories d
+            LEFT JOIN zones z ON d.zone_id = z.zone_id
+            ORDER BY d.created_date DESC
+        `;
 
-    let query = `
-      SELECT 
-        d.*,
-        z.zone_name,
-        c.manager_name,
-        c.primary_phone,
-        c.secondary_phone,
-        c.line_id,
-        c.email as contact_email,
-        ${MAIN_IMAGE_SUBQUERY}
-      FROM dormitories d
-      LEFT JOIN zones z ON d.zone_id = z.zone_id
-      LEFT JOIN contact_info c ON d.contact_id = c.contact_id
-    `;
-
-    const values = [];
-    if (status) {
-      values.push(status);
-      query += ` WHERE d.approval_status = $1`;
-    }
-
-    query += ' ORDER BY d.updated_date DESC NULLS LAST';
-
-    const result = await pool.query(query, values);
+    const result = await pool.query(query);
     res.json(result.rows);
   } catch (error) {
-    console.error('Error fetching dormitories for admin:', error);
-    res.status(500).json({ message: 'Internal Server Error', error: error.message });
+    console.error("Error fetching all dormitories:", error);
+    res
+      .status(500)
+      .json({ message: "เกิดข้อผิดพลาดในการดึงข้อมูลหอพักทั้งหมด" });
   }
 };
 
-// อนุมัติหอพัก
-exports.approveDormitory = async (req, res) => {
-  try {
-    const { dormId } = req.params;
-
-    const updateQuery = `
-      UPDATE dormitories
-      SET approval_status = 'approved', updated_date = CURRENT_TIMESTAMP
-      WHERE dorm_id = $1
-      RETURNING *
-    `;
-
-    const result = await pool.query(updateQuery, [dormId]);
-
-    if (result.rows.length === 0) {
-      return res.status(404).json({ message: 'ไม่พบข้อมูลหอพัก' });
-    }
-
-    res.json({
-      message: 'อนุมัติหอพักเรียบร้อยแล้ว',
-      dormitory: result.rows[0]
-    });
-  } catch (error) {
-    console.error('Error approving dormitory:', error);
-    res.status(500).json({ message: 'Internal Server Error', error: error.message });
-  }
-};
-
-// ปฏิเสธหอพัก
-exports.rejectDormitory = async (req, res) => {
-  try {
-    const { dormId } = req.params;
-    const { rejectionReason } = req.body;
-
-    if (!rejectionReason) {
-      return res.status(400).json({ message: 'กรุณาระบุเหตุผลในการปฏิเสธ' });
-    }
-
-    const updateQuery = `
-      UPDATE dormitories
-      SET approval_status = 'rejected', 
-          rejection_reason = $2,
-          updated_date = CURRENT_TIMESTAMP
-      WHERE dorm_id = $1
-      RETURNING *
-    `;
-
-    const result = await pool.query(updateQuery, [dormId, rejectionReason]);
-
-    if (result.rows.length === 0) {
-      return res.status(404).json({ message: 'ไม่พบข้อมูลหอพัก' });
-    }
-
-    res.json({
-      message: 'ปฏิเสธหอพักเรียบร้อยแล้ว',
-      dormitory: result.rows[0]
-    });
-  } catch (error) {
-    console.error('Error rejecting dormitory:', error);
-    res.status(500).json({ message: 'Internal Server Error', error: error.message });
-  }
-};
-
-// แก้ไขข้อมูลหอพักโดยแอดมิน
-exports.updateDormitoryByAdmin = async (req, res) => {
-  try {
-    const { dormId } = req.params;
-    const updateData = req.body;
-
-    // ตรวจสอบว่ามีข้อมูลที่ต้องการอัพเดต
-    if (Object.keys(updateData).length === 0) {
-      return res.status(400).json({ message: 'ไม่มีข้อมูลสำหรับอัพเดต' });
-    }
-
-    // สร้างคำสั่ง SQL สำหรับอัพเดต
-    const updateFields = [];
-    const values = [];
-    let paramCount = 1;
-
-    for (const [key, value] of Object.entries(updateData)) {
-      // แปลงชื่อฟิลด์จาก camelCase เป็น snake_case สำหรับ DB
-      const dbField = key.replace(/([A-Z])/g, '_$1').toLowerCase();
-      updateFields.push(`${dbField} = $${paramCount}`);
-      values.push(value);
-      paramCount++;
-    }
-
-    // เพิ่ม updated_date
-    updateFields.push(`updated_date = CURRENT_TIMESTAMP`);
-
-    const query = `
-      UPDATE dormitories
-      SET ${updateFields.join(', ')}
-      WHERE dorm_id = $${paramCount}
-      RETURNING *
-    `;
-
-    values.push(dormId);
-
-    const result = await pool.query(query, values);
-
-    if (result.rows.length === 0) {
-      return res.status(404).json({ message: 'ไม่พบข้อมูลหอพัก' });
-    }
-
-    res.json({
-      message: 'อัพเดตข้อมูลหอพักเรียบร้อยแล้ว',
-      dormitory: result.rows[0]
-    });
-  } catch (error) {
-    console.error('Error updating dormitory by admin:', error);
-    res.status(500).json({ message: 'Internal Server Error', error: error.message });
-  }
-};
-
-// ลบหอพักโดยแอดมิน
-exports.deleteDormitoryByAdmin = async (req, res) => {
+// ฟังก์ชันสำหรับอนุมัติหรือปฏิเสธหอพัก
+exports.updateDormitoryApproval = async (req, res) => {
   const client = await pool.connect();
   try {
     const { dormId } = req.params;
+    const { status, rejectionReason } = req.body;
+    const firebase_uid = req.user.uid;
 
-    await client.query('BEGIN');
-
-    // 1. ลบรูปภาพที่เกี่ยวข้อง
-    await client.query('DELETE FROM dormitory_images WHERE dorm_id = $1', [dormId]);
-
-    // 2. ลบประเภทห้องที่เกี่ยวข้อง
-    await client.query('DELETE FROM room_types WHERE dorm_id = $1', [dormId]);
-
-    // 3. ลบข้อมูลหอพัก (ถ้ามี contact_info ที่เกี่ยวข้อง)
-    const contactInfoResult = await client.query(
-      'SELECT contact_id FROM dormitories WHERE dorm_id = $1',
-      [dormId]
+    // ตรวจสอบสิทธิ์ผู้ใช้ (เฉพาะผู้ดูแลระบบที่สามารถอนุมัติหรือปฏิเสธได้)
+    const userResult = await client.query(
+      "SELECT id, member_type FROM users WHERE firebase_uid = $1",
+      [firebase_uid]
     );
 
-    // 4. ลบหอพัก
-    const result = await client.query(
-      'DELETE FROM dormitories WHERE dorm_id = $1 RETURNING *',
-      [dormId]
-    );
-
-    if (result.rows.length === 0) {
-      await client.query('ROLLBACK');
-      return res.status(404).json({ message: 'ไม่พบข้อมูลหอพัก' });
+    if (userResult.rows.length === 0) {
+      return res.status(404).json({ message: "ไม่พบข้อมูลผู้ใช้" });
     }
 
-    // 5. ลบข้อมูลการติดต่อที่เกี่ยวข้อง (ถ้ามี)
-    if (contactInfoResult.rows.length > 0 && contactInfoResult.rows[0].contact_id) {
-      await client.query(
-        'DELETE FROM contact_info WHERE contact_id = $1',
-        [contactInfoResult.rows[0].contact_id]
-      );
+    const user = userResult.rows[0];
+    const userId = user.id;
+
+    if (user.member_type !== "admin") {
+      return res
+        .status(403)
+        .json({ message: "เฉพาะผู้ดูแลระบบเท่านั้นที่สามารถดำเนินการนี้ได้" });
     }
 
-    await client.query('COMMIT');
+    await client.query("BEGIN");
 
-    res.json({
-      message: 'ลบข้อมูลหอพักเรียบร้อยแล้ว',
-      dormitory: result.rows[0]
-    });
+    // 1. Update dormitory approval status
+    const dormQuery = `
+            UPDATE dormitories
+            SET 
+                approval_status = $1,
+                rejection_reason = $2,
+                reviewed_by = $3,
+                reviewed_date = NOW()
+            WHERE dorm_id = $4
+        `;
+
+    await client.query(dormQuery, [
+      status,
+      status === "ไม่อนุมัติ" ? rejectionReason : null, // Set rejection reason only if rejected
+      userId,
+      dormId,
+    ]);
+
+    await client.query("COMMIT");
+
+    res.json({ message: "สถานะการอนุมัติหอพักถูกปรับปรุงเรียบร้อยแล้ว" });
   } catch (error) {
-    await client.query('ROLLBACK');
-    console.error('Error deleting dormitory by admin:', error);
-    res.status(500).json({ message: 'Internal Server Error', error: error.message });
+    await client.query("ROLLBACK");
+    console.error("Error updating dormitory approval:", error);
+    res
+      .status(500)
+      .json({ message: "เกิดข้อผิดพลาดในการปรับปรุงสถานะการอนุมัติหอพัก" });
   } finally {
     client.release();
   }
 };
 
-// ดูรายละเอียดหอพักโดยแอดมิน
-exports.getDormitoryDetailsByAdmin = async (req, res) => {
+// ฟังก์ชันสำหรับลบหอพัก (เฉพาะผู้ดูแลระบบ)
+exports.deleteDormitory = async (req, res) => {
+  const client = await pool.connect();
   try {
     const { dormId } = req.params;
+    const firebase_uid = req.user.uid;
 
-    const query = `
-      SELECT 
-        d.*,
-        z.zone_name,
-        c.manager_name,
-        c.primary_phone,
-        c.secondary_phone,
-        c.line_id,
-        c.email as contact_email,
-        (SELECT json_agg(rt.*) FROM room_types rt WHERE rt.dorm_id = d.dorm_id) as room_types,
-        (SELECT json_agg(
-          json_build_object(
-            'image_id', di.image_id,
-            'image_url', di.image_url,
-            'image_type', di.image_type,
-            'is_primary', di.is_primary
-          )
-        ) FROM dormitory_images di WHERE di.dorm_id = d.dorm_id) as images
-      FROM dormitories d
-      LEFT JOIN zones z ON d.zone_id = z.zone_id
-      LEFT JOIN contact_info c ON d.contact_id = c.contact_id
-      WHERE d.dorm_id = $1
-    `;
+    // ตรวจสอบสิทธิ์ผู้ใช้ (เฉพาะผู้ดูแลระบบที่สามารถลบได้)
+    const userResult = await client.query(
+      "SELECT id, member_type FROM users WHERE firebase_uid = $1",
+      [firebase_uid]
+    );
 
-    const result = await pool.query(query, [dormId]);
-
-    if (result.rows.length === 0) {
-      return res.status(404).json({ message: 'ไม่พบข้อมูลหอพัก' });
+    if (userResult.rows.length === 0) {
+      return res.status(404).json({ message: "ไม่พบข้อมูลผู้ใช้" });
     }
 
-    res.json(result.rows[0]);
+    const user = userResult.rows[0];
+    const userId = user.id;
+
+    if (user.member_type !== "admin") {
+      return res
+        .status(403)
+        .json({ message: "เฉพาะผู้ดูแลระบบเท่านั้นที่สามารถลบหอพักได้" });
+    }
+
+    await client.query("BEGIN");
+
+    // 1. ลบข้อมูลห้องพักที่เกี่ยวข้องกับหอพักนี้
+    await client.query(
+      `DELETE FROM rooms WHERE room_type_id IN (SELECT room_type_id FROM room_types WHERE dorm_id = $1)`,
+      [dormId]
+    );
+
+    // 2. ลบข้อมูลประเภทห้อง (room types) ที่เกี่ยวข้องกับหอพักนี้
+    await client.query(`DELETE FROM room_types WHERE dorm_id = $1`, [dormId]);
+
+    // 3. ลบข้อมูลสิ่งอำนวยความสะดวก (amenities) ที่เกี่ยวข้องกับหอพักนี้
+    await client.query(`DELETE FROM dormitory_amenities WHERE dorm_id = $1`, [
+      dormId,
+    ]);
+
+    // 4. ลบข้อมูลรูปภาพหอพัก
+    await client.query(`DELETE FROM dormitory_images WHERE dorm_id = $1`, [
+      dormId,
+    ]);
+
+    // 5. ลบข้อมูลหอพัก
+    await client.query(`DELETE FROM dormitories WHERE dorm_id = $1`, [dormId]);
+
+    await client.query("COMMIT");
+
+    res.json({ message: "ลบหอพักเรียบร้อยแล้ว" });
   } catch (error) {
-    console.error('Error fetching dormitory details for admin:', error);
-    res.status(500).json({ message: 'Internal Server Error', error: error.message });
+    await client.query("ROLLBACK");
+    console.error("Error deleting dormitory:", error);
+    res.status(500).json({ message: "เกิดข้อผิดพลาดในการลบหอพัก" });
+  } finally {
+    client.release();
   }
 }; 

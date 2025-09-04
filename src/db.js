@@ -2,7 +2,7 @@
 const { Pool } = require('pg');
 require('dotenv').config();
 
-console.log('Database URL:', process.env.DATABASE_URL); // เพิ่มบรรทัดนี้
+// Avoid printing secrets
 
 if (!process.env.DATABASE_URL) {
   console.error("Error: DATABASE_URL is not set in .env file.");
@@ -13,9 +13,7 @@ const pool = new Pool({
   connectionString: process.env.DATABASE_URL
 });
 
-pool.on('connect', () => {
-  console.log('Connected to PostgreSQL database!');
-});
+// Optional: you can add minimal health logs if needed
 
 pool.on('error', (err) => {
   console.error('Unexpected error on idle client', err);

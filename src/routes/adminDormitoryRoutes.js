@@ -4,11 +4,13 @@ const adminDormitoryController = require('../controllers/adminDormitoryControlle
 const { verifyAdminToken } = require('../middleware/authMiddleware');
 
 // ===== ADMIN ROUTES =====
-router.get('/all', verifyAdminToken, adminDormitoryController.getAllDormitoriesAdmin);
-router.get('/:dormId', verifyAdminToken, adminDormitoryController.getDormitoryDetailsByAdmin);
-router.put('/:dormId/approve', verifyAdminToken, adminDormitoryController.approveDormitory);
-router.put('/:dormId/reject', verifyAdminToken, adminDormitoryController.rejectDormitory);
-router.put('/:dormId', verifyAdminToken, adminDormitoryController.updateDormitoryByAdmin);
-router.delete('/:dormId', verifyAdminToken, adminDormitoryController.deleteDormitoryByAdmin);
+router.get('/all', verifyAdminToken, adminDormitoryController.getAllDormitories);
+// router.get('/:dormId', verifyAdminToken, adminDormitoryController.getDormitoryDetailsByAdmin);
+// router.get('/:dormId/check-members', verifyAdminToken, adminDormitoryController.checkDormitoryMembers); // เพิ่มเส้นใหม่
+router.put('/:dormId/approval', verifyAdminToken, adminDormitoryController.updateDormitoryApproval);
+// router.put('/:dormId/reject', verifyAdminToken, adminDormitoryController.rejectDormitory);
+// router.put('/:dormId', verifyAdminToken, adminDormitoryController.updateDormitoryByAdmin);
+router.delete('/:dormId', verifyAdminToken, adminDormitoryController.deleteDormitory);
+
 
 module.exports = router; 

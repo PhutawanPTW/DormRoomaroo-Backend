@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const addDormitoryController = require('../controllers/AddDormitoryController');
+const editDormitoryController = require('../controllers/editDormitoryController');
 const { verifyFirebaseToken } = require('../middleware/authMiddleware');
 
 // ============== Routes หลักสำหรับเพิ่มข้อมูลหอพัก ==============
@@ -12,10 +13,10 @@ router.post('/', verifyFirebaseToken, addDormitoryController.addDormitory);
 router.get('/:dormId', verifyFirebaseToken, addDormitoryController.getDormitory);
 
 // อัพเดตข้อมูลหอพัก
-router.put('/:dormId', verifyFirebaseToken, addDormitoryController.updateDormitory);
+router.put('/:dormId', verifyFirebaseToken, editDormitoryController.updateDormitory);
 
-// ดูรายการหอพักที่ตัวเองส่งไป
-router.get('/my/list', verifyFirebaseToken, addDormitoryController.getMyDormitories);
+// เส้นใหม่ที่ชัดเจนสำหรับ owner
+router.get('/owner/dormitories', verifyFirebaseToken, addDormitoryController.getMyDormitories);
 
 // ============== Routes เดิม (คอมเม้นไว้ก่อน) ==============
 

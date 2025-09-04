@@ -27,8 +27,7 @@ function mapUserRowToProfile(row) {
 }
 
 exports.googleLogin = async (req, res) => {
-  console.log("Body:", req.body);
-  console.log("User from token:", req.user);
+  // Reduce noisy logs
   const { userType } = req.body;
   try {
     const firebase_uid = req.user.uid;
@@ -36,21 +35,21 @@ exports.googleLogin = async (req, res) => {
     const displayName = req.user.name || null;
     const photoURL = req.user.picture || null;
 
-    console.log('Google login for uid:', firebase_uid, 'requested userType:', userType);
+    // audit: login attempt
 
     // ตรวจสอบว่ามีผู้ใช้อยู่แล้วหรือไม่
     const existingUser = await userService.getUserByFirebaseUid(firebase_uid);
 
     // ถ้ามีอยู่แล้ว และ member_type ไม่ตรงกับ userType ที่ frontend ขอ => ปฏิเสธ
     if (existingUser && existingUser.member_type && userType && existingUser.member_type !== userType) {
-      console.warn('Account type mismatch. Existing:', existingUser.member_type, 'requested:', userType);
+      console.warn('Account type mismatch');
       const thaiRole = existingUser.member_type === 'owner' ? 'เจ้าของหอพัก' : 'สมาชิก';
       return res.status(409).json({ code: 'account-type-mismatch', message: `อีเมลนี้ถูกลงทะเบียนเป็น${thaiRole}แล้ว ไม่สามารถเข้าสู่ระบบในหน้านี้ได้` });
     }
 
     // ถ้าไม่มีผู้ใช้ในระบบ ส่งกลับให้ไปกรอกข้อมูล
     if (!existingUser) {
-      console.log('New user, redirecting to profile setup');
+      // new user, requires profile setup
       return res.status(200).json({
         uid: firebase_uid,
         email: email,
@@ -76,29 +75,21 @@ exports.googleLogin = async (req, res) => {
       needsProfileSetup: needsProfileSetup
     };
 
-    console.log('Returning existing user profile:', {
-      uid: userProfile.uid,
-      memberType: userProfile.memberType,
-      needsProfileSetup: needsProfileSetup
-    });
+    // return user profile
 
     res.status(200).json(userProfile);
   } catch (error) {
-    console.error('Detailed Google Login Error:', error);
-    if (error.code) console.error('Error code:', error.code);
-    if (error.stack) console.error('Error stack:', error.stack);
+    console.error('Google Login Error:', error.message);
     res.status(500).json({ message: 'เกิดข้อผิดพลาดภายในเซิร์ฟเวอร์', error: error.message });
   }
 };
 
 exports.registerWithEmail = async (req, res) => {
-  console.log('=== Registration Request Debug ===');
-  console.log('Request body:', req.body);
-  console.log('Request file:', req.file);
+  // registration request
 
   const firebase_uid = req.user?.uid;
   if (!firebase_uid) {
-    console.error('Registration Error: Firebase UID is missing from request.');
+    console.error('Registration Error: Missing Firebase UID');
     return res.status(401).json({ message: 'ไม่ได้รับอนุญาต: ไม่พบ Firebase UID' });
   }
 
@@ -119,25 +110,25 @@ exports.registerWithEmail = async (req, res) => {
 
   // *** ปรับปรุงการตรวจสอบ required fields ***
   if (!email || !fullName || !memberType) {
-    console.error('Registration Error: Missing basic required fields.');
+      console.error('Registration Error: Missing basic required fields');
     return res.status(400).json({ message: 'กรุณากรอกข้อมูลที่จำเป็น: อีเมล, ชื่อเต็ม, ประเภทผู้ใช้' });
   }
 
   // ตรวจสอบ required fields ตาม memberType
   if (memberType === 'member') {
     if (!phoneNumber || !dormitoryParam) {
-      console.error('Registration Error: Missing required fields for member.');
+      console.error('Registration Error: Missing required fields for member');
       return res.status(400).json({ message: 'กรุณากรอกข้อมูลที่จำเป็นสำหรับสมาชิก: เบอร์โทรศัพท์และหอพัก' });
     }
   } else if (memberType === 'owner') {
     if (!managerName) {
-      console.error('Registration Error: Missing required fields for owner.');
+      console.error('Registration Error: Missing required fields for owner');
       return res.status(400).json({ message: 'กรุณากรอกข้อมูลที่จำเป็นสำหรับเจ้าของ: ชื่อผู้จัดการ' });
     }
   }
 
   if (!['member', 'owner'].includes(memberType)) {
-    console.error('Registration Error: Invalid memberType:', memberType);
+    console.error('Registration Error: Invalid memberType');
     return res.status(400).json({ message: 'ประเภทผู้ใช้ไม่ถูกต้อง ต้องเป็น "member" หรือ "owner"' });
   }
 
@@ -159,7 +150,7 @@ exports.registerWithEmail = async (req, res) => {
     // แปลง dormitory เป็น integer ถ้าเป็น string (สำหรับ member เท่านั้น)
     let dormitoryIdFinal = null;
     if (memberType === 'member' && dormitoryParam) {
-      console.log('Converting dormitory to integer:', dormitoryParam);
+      // normalize dormitory param
 
       if (typeof dormitoryParam === 'object' && dormitoryParam !== null) {
         if (dormitoryParam.id) {
@@ -173,7 +164,7 @@ exports.registerWithEmail = async (req, res) => {
         dormitoryIdFinal = parseInt(dormitoryParam, 10);
       }
 
-      console.log('Converted dormitoryId:', dormitoryIdFinal);
+      // normalized dormitoryId computed
 
       if (isNaN(dormitoryIdFinal)) {
         await client.query('ROLLBACK');
@@ -196,10 +187,7 @@ exports.registerWithEmail = async (req, res) => {
       lineId: memberType === 'owner' ? lineId : null
     });
 
-    console.log('==== New User Data After Registration ====');
-    console.log('memberType from request:', memberType);
-    console.log('memberType saved in DB:', newUser.member_type);
-    console.log('User data:', newUser);
+    // new user created/updated
 
     // อัพเดต Firebase user profile
     await firebaseAdmin.auth().updateUser(firebase_uid, {
@@ -219,9 +207,7 @@ exports.registerWithEmail = async (req, res) => {
       lineId: newUser.line_id || null
     };
 
-    console.log('==== User Profile Response ====');
-    console.log('memberType in response:', userProfile.memberType);
-    console.log('Full response object:', userProfile);
+    // respond with user profile
 
     // สร้างคำขอเข้าหอพักอัตโนมัติถ้าเป็น member และมี dormitoryId
     if (memberType === 'member' && dormitoryIdFinal) {
@@ -236,7 +222,7 @@ exports.registerWithEmail = async (req, res) => {
         if (existingRequest.rows.length === 0) {
           await client.query(
             `INSERT INTO member_requests (user_id, dorm_id, request_date, status)
-             VALUES ($1, $2, CURRENT_TIMESTAMP, 'pending')`,
+             VALUES ($1, $2, CURRENT_TIMESTAMP, 'รออนุมัติ')`,
             [userId, dormitoryIdFinal]
           );
           console.log(`Created membership request for user ${userId} to dormitory ${dormitoryIdFinal}`);
@@ -266,10 +252,10 @@ exports.registerWithEmail = async (req, res) => {
 exports.fetchCurrentUserProfile = async (req, res) => {
   try {
     const firebase_uid = req.user.uid;
-    console.log('Fetching profile for UID:', firebase_uid);
+    // fetch current user profile
 
     const user = await userService.getUserByFirebaseUid(firebase_uid);
-    console.log('User found in database:', !!user);
+    // user existence checked
 
     // ถ้าไม่พบข้อมูลผู้ใช้ในฐานข้อมูล
     if (!user) {
@@ -298,12 +284,7 @@ exports.fetchCurrentUserProfile = async (req, res) => {
       isNewUser: false // ผู้ใช้ที่มีข้อมูลในระบบแล้ว
     };
 
-    console.log('Sending user profile:', {
-      uid: userProfile.uid,
-      memberType: userProfile.memberType,
-      needsProfileSetup: userProfile.needsProfileSetup,
-      isNewUser: userProfile.isNewUser
-    });
+    // profile prepared
 
     res.json(userProfile);
   } catch (error) {
@@ -411,7 +392,7 @@ exports.completeUserProfile = async (req, res) => {
         if (existingRequest.rows.length === 0) {
           await client.query(
             `INSERT INTO member_requests (user_id, dorm_id, request_date, status)
-             VALUES ($1, $2, CURRENT_TIMESTAMP, 'pending')`,
+             VALUES ($1, $2, CURRENT_TIMESTAMP, 'รออนุมัติ')`,
             [userId, parsedDormitoryId]
           );
           console.log(`Created membership request for user ${userId} to dormitory ${parsedDormitoryId}`);
@@ -431,7 +412,7 @@ exports.completeUserProfile = async (req, res) => {
     res.json(userProfile);
   } catch (error) {
     await client.query('ROLLBACK');
-    console.error('Error updating user profile:', error);
+    console.error('Error updating user profile:', error.message);
     res.status(500).json({ message: 'ไม่สามารถอัพเดทโปรไฟล์ได้', error: error.message });
   } finally {
     client.release();
@@ -445,7 +426,7 @@ exports.getDormitoryOptions = async (req, res) => {
       SELECT dorm_id, dorm_name, address, monthly_price, zone_name
       FROM dormitories d
       LEFT JOIN zones z ON d.zone_id = z.zone_id
-      WHERE d.approval_status = 'approved'
+      WHERE d.approval_status = 'อนุมัติ'
       ORDER BY d.dorm_name
     `;
 

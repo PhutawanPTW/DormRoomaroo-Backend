@@ -26,17 +26,27 @@ const bucket = storageApp.storage().bucket(bucketName);
 /**
  * Uploads a file to Firebase Storage and returns the public URL.
  * @param {object} file - The file object from multer (req.file).
+ * @param {string} dormName - The dormitory name for folder organization.
  * @returns {Promise<string>} The public URL of the uploaded file.
  */
-const uploadImage = (file) => {
+const uploadImage = (file, dormName = null) => {
   if (!file) {
     return Promise.resolve(null);
   }
 
   return new Promise((resolve, reject) => {
-    // สร้างชื่อไฟล์ที่ไม่ซ้ำกัน โดยใช้ UUID และเก็บนามสกุลเดิม
-    const uniqueFileName = `${uuidv4()}-${file.originalname}`;
-    const blob = bucket.file(`Profile_Roomaroo/${uniqueFileName}`);
+    // สร้างชื่อไฟล์ที่ไม่ซ้ำกัน โดยใช้ UUID และเก็บนามสกุลเดิม (ตัดชื่อไฟล์ให้สั้นลง)
+    const originalName = file.originalname || 'image';
+    const extension = originalName.split('.').pop() || 'jpg';
+    const shortName = originalName.replace(/\.[^/.]+$/, '').substring(0, 20); // ตัดชื่อไฟล์ให้เหลือแค่ 20 ตัวอักษร
+    const uniqueFileName = `${uuidv4()}-${shortName}.${extension}`;
+    
+    // เลือก path ตาม context - หากมี dormName ใช้ Dorm_Gallery แทน Profile_Roomaroo
+    const folderPath = dormName 
+      ? `Dorm_Gallery/${dormName}` 
+      : `Profile_Roomaroo`;
+    
+    const blob = bucket.file(`${folderPath}/${uniqueFileName}`);
 
     const blobStream = blob.createWriteStream({
       metadata: {
@@ -65,6 +75,17 @@ const uploadImage = (file) => {
   });
 };
 
+/**
+ * Uploads dormitory image to Firebase Storage in Dorm_Gallery folder.
+ * @param {object} file - The file object from multer (req.file).
+ * @param {string} dormName - The dormitory name for folder organization.
+ * @returns {Promise<string>} The public URL of the uploaded file.
+ */
+const uploadDormitoryImage = (file, dormName) => {
+  return uploadImage(file, dormName);
+};
+
 module.exports = {
   uploadImage,
+  uploadDormitoryImage,
 }; 
