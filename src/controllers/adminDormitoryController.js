@@ -12,9 +12,12 @@ exports.getAllDormitories = async (req, res) => {
                 d.approval_status,
                 d.created_date AS submitted_date,
                 z.zone_name,
+                u.username AS owner_username,
+                u.display_name AS owner_name,
                 (SELECT image_url FROM dormitory_images WHERE dorm_id = d.dorm_id AND is_primary = true LIMIT 1) as main_image_url
             FROM dormitories d
             LEFT JOIN zones z ON d.zone_id = z.zone_id
+            LEFT JOIN users u ON d.owner_id = u.id
             ORDER BY d.created_date DESC
         `;
 
@@ -117,6 +120,33 @@ exports.deleteDormitory = async (req, res) => {
 
     await client.query("BEGIN");
 
+    // 0. จัดการสมาชิกที่อาศัยอยู่ในหอพักนี้: บันทึกประวัติและถอดออกจากหอพัก
+    //    - เก็บประวัติในตาราง member_requests เป็นสถานะ "ย้ายออกอัตโนมัติ"
+    //    - ตั้งค่า users.residence_dorm_id = NULL
+    const residentsResult = await client.query(
+      `SELECT id FROM users WHERE residence_dorm_id = $1`,
+      [dormId]
+    );
+
+    if (residentsResult.rows.length > 0) {
+      const residentIds = residentsResult.rows.map(r => r.id);
+
+      // บันทึกประวัติการย้ายออก
+      const insertHistoryQuery = `
+        INSERT INTO member_requests (user_id, dorm_id, request_date, status)
+        SELECT id, $1, CURRENT_TIMESTAMP, 'ย้ายออกอัตโนมัติ'
+        FROM users
+        WHERE id = ANY($2::int[])
+      `;
+      await client.query(insertHistoryQuery, [dormId, residentIds]);
+
+      // ถอดสมาชิกออกจากหอพัก
+      await client.query(
+        `UPDATE users SET residence_dorm_id = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = ANY($1::int[])`,
+        [residentIds]
+      );
+    }
+
     // 1. ลบข้อมูลห้องพักที่เกี่ยวข้องกับหอพักนี้
     await client.query(
       `DELETE FROM rooms WHERE room_type_id IN (SELECT room_type_id FROM room_types WHERE dorm_id = $1)`,
@@ -131,12 +161,30 @@ exports.deleteDormitory = async (req, res) => {
       dormId,
     ]);
 
-    // 4. ลบข้อมูลรูปภาพหอพัก
+    // 4. จัดการข้อมูล stay_history ของหอพักนี้
+    //    - ตั้งค่า dorm_id = NULL และเพิ่มโน้ตลงใน status ว่า "หอพัก id X ถูกลบ"
+    await client.query(
+      `UPDATE stay_history 
+       SET dorm_id = NULL, 
+           status = CASE 
+             WHEN is_current = true OR status = 'อยู่' THEN CONCAT('หอพัก id ', $1::text, ' ถูกลบ')
+             ELSE status 
+           END,
+           end_date = CASE 
+             WHEN is_current = true THEN CURRENT_TIMESTAMP 
+             ELSE end_date 
+           END,
+           is_current = false
+       WHERE dorm_id = $1`,
+      [dormId]
+    );
+
+    // 5. ลบข้อมูลรูปภาพหอพัก
     await client.query(`DELETE FROM dormitory_images WHERE dorm_id = $1`, [
       dormId,
     ]);
 
-    // 5. ลบข้อมูลหอพัก
+    // 6. ลบข้อมูลหอพัก
     await client.query(`DELETE FROM dormitories WHERE dorm_id = $1`, [dormId]);
 
     await client.query("COMMIT");

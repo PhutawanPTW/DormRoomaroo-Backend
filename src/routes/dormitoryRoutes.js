@@ -36,7 +36,8 @@ const upload = multer({
 router.get("/zones", dormitoryController.getAllZones);
 
 // ===== PUBLIC DORMITORY ROUTES =====
-router.get("/user/:userId", dormitoryController.getDormitoriesByUserId); // ดึงรายการหอพักทั้งหมดของ userId
+router.get("/user/:userId", dormitoryController.getDormitoriesByUserId); // ดึงรายการหอพักทั้งหมดของ userId (จะ deprecated)
+router.get("/owner", verifyFirebaseToken, dormitoryController.getOwnerDormitories); // ดึงรายการหอของเจ้าของจาก token
 router.get("/", adminDormitoryController.getAllDormitories); // ดึงรายการหอพักทั้งหมด
 
 // ===== MAP ROUTES =====

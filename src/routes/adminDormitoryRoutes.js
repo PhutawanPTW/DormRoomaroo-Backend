@@ -1,16 +1,16 @@
 const express = require('express');
 const router = express.Router();
 const adminDormitoryController = require('../controllers/adminDormitoryController');
-const { verifyAdminToken } = require('../middleware/authMiddleware');
+const { verifyFirebaseToken, requireAdmin } = require('../middleware/authMiddleware');
 
 // ===== ADMIN ROUTES =====
-router.get('/all', verifyAdminToken, adminDormitoryController.getAllDormitories);
-// router.get('/:dormId', verifyAdminToken, adminDormitoryController.getDormitoryDetailsByAdmin);
-// router.get('/:dormId/check-members', verifyAdminToken, adminDormitoryController.checkDormitoryMembers); // เพิ่มเส้นใหม่
-router.put('/:dormId/approval', verifyAdminToken, adminDormitoryController.updateDormitoryApproval);
-// router.put('/:dormId/reject', verifyAdminToken, adminDormitoryController.rejectDormitory);
-// router.put('/:dormId', verifyAdminToken, adminDormitoryController.updateDormitoryByAdmin);
-router.delete('/:dormId', verifyAdminToken, adminDormitoryController.deleteDormitory);
+router.get('/all', verifyFirebaseToken, requireAdmin, adminDormitoryController.getAllDormitories);
+// router.get('/:dormId', verifyFirebaseToken, requireAdmin, adminDormitoryController.getDormitoryDetailsByAdmin);
+// router.get('/:dormId/check-members', verifyFirebaseToken, requireAdmin, adminDormitoryController.checkDormitoryMembers); // เพิ่มเส้นใหม่
+router.put('/:dormId/approval', verifyFirebaseToken, requireAdmin, adminDormitoryController.updateDormitoryApproval);
+// router.put('/:dormId/reject', verifyFirebaseToken, requireAdmin, adminDormitoryController.rejectDormitory);
+// router.put('/:dormId', verifyFirebaseToken, requireAdmin, adminDormitoryController.updateDormitoryByAdmin);
+router.delete('/:dormId', verifyFirebaseToken, requireAdmin, adminDormitoryController.deleteDormitory);
 
 
 module.exports = router; 

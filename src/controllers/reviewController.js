@@ -1,5 +1,6 @@
 // src/controllers/reviewController.js
 const pool = require("../db");
+const { predictReviewRating } = require("../services/mlService");
 
 // ดึงรีวิวทั้งหมดของหอพัก
 exports.getDormitoryReviews = async (req, res) => {
@@ -22,7 +23,7 @@ exports.getDormitoryReviews = async (req, res) => {
         r.review_id,
         r.rating,
         r.comment,
-        r.created_at,
+        r.review_date,
         u.id as user_id,
         u.display_name,
         u.photo_url,
@@ -30,7 +31,7 @@ exports.getDormitoryReviews = async (req, res) => {
       FROM reviews r
       JOIN users u ON r.user_id = u.id
       WHERE r.dorm_id = $1
-      ORDER BY r.created_at DESC
+      ORDER BY r.review_date DESC
     `;
 
     const reviewsResult = await pool.query(reviewsQuery, [dormId]);
@@ -67,12 +68,7 @@ exports.createReview = async (req, res) => {
   try {
     const { dormId } = req.params;
     const { uid } = req.user;
-    const { rating, comment } = req.body;
-
-    // ตรวจสอบข้อมูลที่จำเป็น
-    if (!rating || rating < 1 || rating > 5) {
-      return res.status(400).json({ message: "กรุณาระบุคะแนนระหว่าง 1-5" });
-    }
+    const { comment } = req.body;
 
     if (!comment || comment.trim().length === 0) {
       return res.status(400).json({ message: "กรุณาระบุความคิดเห็น" });
@@ -104,11 +100,19 @@ exports.createReview = async (req, res) => {
       return res.status(404).json({ message: "ไม่พบข้อมูลหอพัก" });
     }
 
-    // ตรวจสอบว่าผู้ใช้เป็นสมาชิกของหอพักนี้หรือไม่
-    if (user.member_type !== 'member' || user.residence_dorm_id !== parseInt(dormId)) {
+    // ตรวจสอบประวัติการพักจาก stay_history: เคยพักหรือกำลังพักในหอนี้
+    const stayCheck = await client.query(`
+      SELECT COUNT(*) AS stay_count
+      FROM stay_history
+      WHERE user_id = $1 AND dorm_id = $2
+        AND (is_current = true OR end_date >= CURRENT_DATE)
+    `, [user.id, dormId]);
+
+    const stayedHere = parseInt(stayCheck.rows[0].stay_count) > 0;
+    if (!stayedHere) {
       await client.query('ROLLBACK');
       return res.status(403).json({ 
-        message: "เฉพาะสมาชิกของหอพักเท่านั้นที่สามารถรีวิวได้" 
+        message: "รีวิวได้เฉพาะผู้ที่เคยพักอาศัยหรือกำลังพักอาศัยในหอนี้" 
       });
     }
 
@@ -123,9 +127,27 @@ exports.createReview = async (req, res) => {
       return res.status(400).json({ message: "คุณเคยรีวิวหอพักนี้แล้ว" });
     }
 
+    // เรียก ML เพื่อทำนายคะแนนจากข้อความรีวิว
+    let predictedRating = null;
+    let predictedConfidence = null;
+    try {
+      const ml = await predictReviewRating(comment.trim());
+      predictedRating = ml?.predicted_rating;
+      predictedConfidence = ml?.confidence ?? null;
+    } catch (e) {
+      // หาก ML ล้มเหลว ไม่บล็อกการสร้างรีวิว แต่ต้องมีคะแนนที่ถูกต้องจาก ML
+      await client.query('ROLLBACK');
+      return res.status(502).json({ message: "ML service unavailable", details: e.message });
+    }
+
+    if (!predictedRating || predictedRating < 1 || predictedRating > 5) {
+      await client.query('ROLLBACK');
+      return res.status(500).json({ message: "Invalid predicted rating from ML" });
+    }
+
     // สร้างรีวิวใหม่
     const createReviewQuery = `
-      INSERT INTO reviews (user_id, dorm_id, rating, comment, created_at)
+      INSERT INTO reviews (user_id, dorm_id, rating, comment, review_date)
       VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP)
       RETURNING review_id
     `;
@@ -133,7 +155,7 @@ exports.createReview = async (req, res) => {
     const reviewResult = await client.query(createReviewQuery, [
       user.id,
       dormId,
-      rating,
+      predictedRating,
       comment.trim()
     ]);
 
@@ -141,7 +163,9 @@ exports.createReview = async (req, res) => {
 
     res.status(201).json({
       message: "สร้างรีวิวสำเร็จ",
-      review_id: reviewResult.rows[0].review_id
+      review_id: reviewResult.rows[0].review_id,
+      predicted_rating: predictedRating,
+      confidence: predictedConfidence
     });
 
   } catch (error) {
@@ -159,12 +183,7 @@ exports.updateReview = async (req, res) => {
   try {
     const { reviewId } = req.params;
     const { uid } = req.user;
-    const { rating, comment } = req.body;
-
-    // ตรวจสอบข้อมูลที่จำเป็น
-    if (!rating || rating < 1 || rating > 5) {
-      return res.status(400).json({ message: "กรุณาระบุคะแนนระหว่าง 1-5" });
-    }
+    const { comment } = req.body;
 
     if (!comment || comment.trim().length === 0) {
       return res.status(400).json({ message: "กรุณาระบุความคิดเห็น" });
@@ -187,7 +206,7 @@ exports.updateReview = async (req, res) => {
 
     // ตรวจสอบว่ารีวิวมีอยู่และเป็นของผู้ใช้นี้หรือไม่
     const reviewResult = await client.query(
-      "SELECT review_id, user_id FROM reviews WHERE review_id = $1",
+      "SELECT review_id, user_id, review_date FROM reviews WHERE review_id = $1",
       [reviewId]
     );
 
@@ -201,15 +220,44 @@ exports.updateReview = async (req, res) => {
       return res.status(403).json({ message: "ไม่มีสิทธิ์แก้ไขรีวิวนี้" });
     }
 
+    // ตรวจสอบว่ารีวิวยังอยู่ในช่วง 7 วันหรือไม่
+    const reviewDate = new Date(reviewResult.rows[0].review_date);
+    const sevenDaysAgo = new Date();
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+
+    if (reviewDate < sevenDaysAgo) {
+      await client.query('ROLLBACK');
+      return res.status(403).json({ 
+        message: "ไม่สามารถแก้ไขรีวิวได้ เนื่องจากเกิน 7 วันแล้ว" 
+      });
+    }
+
+    // เรียก ML เพื่อทำนายคะแนนใหม่จากข้อความที่แก้ไข
+    let predictedRating = null;
+    let predictedConfidence = null;
+    try {
+      const ml = await predictReviewRating(comment.trim());
+      predictedRating = ml?.predicted_rating;
+      predictedConfidence = ml?.confidence ?? null;
+    } catch (e) {
+      await client.query('ROLLBACK');
+      return res.status(502).json({ message: "ML service unavailable", details: e.message });
+    }
+
+    if (!predictedRating || predictedRating < 1 || predictedRating > 5) {
+      await client.query('ROLLBACK');
+      return res.status(500).json({ message: "Invalid predicted rating from ML" });
+    }
+
     // อัพเดตรีวิว
     await client.query(
-      "UPDATE reviews SET rating = $1, comment = $2, updated_at = CURRENT_TIMESTAMP WHERE review_id = $3",
-      [rating, comment.trim(), reviewId]
+      "UPDATE reviews SET rating = $1, comment = $2 WHERE review_id = $3",
+      [predictedRating, comment.trim(), reviewId]
     );
 
     await client.query('COMMIT');
 
-    res.json({ message: "อัพเดตรีวิวสำเร็จ" });
+    res.json({ message: "อัพเดตรีวิวสำเร็จ", predicted_rating: predictedRating, confidence: predictedConfidence });
 
   } catch (error) {
     await client.query('ROLLBACK');
@@ -292,8 +340,14 @@ exports.checkReviewEligibility = async (req, res) => {
 
     const user = userResult.rows[0];
 
-    // ตรวจสอบว่าผู้ใช้เป็นสมาชิกของหอพักนี้หรือไม่
-    const isEligible = user.member_type === 'member' && user.residence_dorm_id === parseInt(dormId);
+    // ตรวจสอบจาก stay_history: เคยพักหรือกำลังพักในหอนี้
+    const stayCheck = await pool.query(`
+      SELECT COUNT(*) AS stay_count
+      FROM stay_history
+      WHERE user_id = $1 AND dorm_id = $2
+        AND (is_current = true OR end_date >= CURRENT_DATE)
+    `, [user.id, dormId]);
+    const isEligible = parseInt(stayCheck.rows[0].stay_count) > 0;
 
     // ตรวจสอบว่าผู้ใช้เคยรีวิวแล้วหรือไม่
     let hasReviewed = false;
@@ -305,12 +359,21 @@ exports.checkReviewEligibility = async (req, res) => {
       hasReviewed = reviewResult.rows.length > 0;
     }
 
-    res.json({
+    const response = {
       can_review: isEligible && !hasReviewed,
       has_reviewed: hasReviewed,
-      reason: !isEligible ? "เฉพาะสมาชิกของหอพักเท่านั้นที่สามารถรีวิวได้" : 
+      reason: !isEligible ? "รีวิวได้เฉพาะผู้ที่เคยพักอาศัยหรือกำลังพักอาศัยในหอนี้" : 
               hasReviewed ? "คุณเคยรีวิวหอพักนี้แล้ว" : null
-    });
+    };
+
+    console.log('=== DEBUG API RESPONSE ===');
+    console.log('Final response being sent:', response);
+    console.log('isEligible:', isEligible);
+    console.log('hasReviewed:', hasReviewed);
+    console.log('can_review:', response.can_review);
+    console.log('=== END DEBUG ===');
+
+    res.json(response);
 
   } catch (error) {
     console.error("Error checking review eligibility:", error);

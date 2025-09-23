@@ -98,6 +98,53 @@ exports.getDormitoriesByUserId = async (req, res) => {
   }
 };
 
+// ดึงรายการหอของเจ้าของ (อ่านจาก Firebase token) พร้อมช่วงราคา min/max จากตาราง dormitories
+exports.getOwnerDormitories = async (req, res) => {
+  try {
+    const firebase_uid = req.user.uid;
+
+    // หา primary key ของผู้ใช้จาก firebase_uid
+    const userResult = await pool.query(
+      "SELECT id FROM users WHERE firebase_uid = $1",
+      [firebase_uid]
+    );
+
+    if (userResult.rows.length === 0) {
+      return res.status(404).json({ message: "ไม่พบข้อมูลผู้ใช้" });
+    }
+
+    const ownerId = userResult.rows[0].id;
+
+    const query = `
+      SELECT
+        d.dorm_id,
+        d.dorm_name,
+        d.address,
+        d.min_price,
+        d.max_price,
+        d.approval_status,
+        to_char(COALESCE(d.updated_date, d.created_date), 'YYYY-MM-DD') AS updated_date,
+        z.zone_name,
+        (
+          SELECT image_url FROM dormitory_images
+          WHERE dorm_id = d.dorm_id
+          ORDER BY is_primary DESC, upload_date DESC, image_id ASC
+          LIMIT 1
+        ) AS main_image_url
+      FROM dormitories d
+      LEFT JOIN zones z ON d.zone_id = z.zone_id
+      WHERE d.owner_id = $1
+      ORDER BY d.created_date DESC
+    `;
+
+    const result = await pool.query(query, [ownerId]);
+    res.json(result.rows);
+  } catch (error) {
+    console.error("Error fetching owner dormitories:", error);
+    res.status(500).json({ message: "Internal Server Error", error: error.message });
+  }
+};
+
 // ดึงรายการโซนทั้งหมด
 exports.getAllZones = async (req, res) => {
   try {
@@ -350,6 +397,22 @@ exports.selectCurrentDormitory = async (req, res) => {
 
     const result = await client.query(updateQuery, [dormId, firebase_uid]);
 
+    // อัพเดต stay_history: ปิดแถวเดิม แล้วเปิดแถวใหม่ภายใน transaction เดียวกัน
+    if (oldDormId) {
+      await client.query(
+        `UPDATE stay_history
+         SET end_date = NOW(), is_current = false, status = 'moved_out'
+         WHERE user_id = $1 AND dorm_id = $2 AND is_current = true`,
+        [userId, oldDormId]
+      );
+    }
+
+    await client.query(
+      `INSERT INTO stay_history (user_id, dorm_id, start_date, end_date, is_current, status)
+       VALUES ($1, $2, NOW(), NULL, true, 'active')`,
+      [userId, dormId]
+    );
+
     await client.query('COMMIT');
 
     res.json({
@@ -521,8 +584,7 @@ exports.getRoomTypesByDormId = async (req, res) => {
         monthly_price,
         daily_price,
         summer_price,
-        term_price,
-        price_type
+        term_price
       FROM room_types 
       WHERE dorm_id = $1
       ORDER BY COALESCE(monthly_price, 2147483647), room_type_id
@@ -546,7 +608,7 @@ exports.createRoomType = async (req, res) => {
     const name        = (req.body.name ?? req.body.room_name ?? '').toString().trim();
     // << สำคัญ: รองรับ bedType จากหน้าบ้าน >>
     const bed_type    = req.body.bed_type ?? req.body.bedType ?? null;
-    const price_type  = (req.body.price_type ?? 'รายเดือน').toString();
+    // removed price_type: no longer stored in DB
 
     const toNumberOrNull = (v) => {
       if (v === undefined || v === null) return null;
@@ -572,15 +634,15 @@ exports.createRoomType = async (req, res) => {
       INSERT INTO room_types (
         dorm_id, room_name, bed_type,
         monthly_price, daily_price, summer_price,
-        price_type, term_price
-      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+        term_price
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7)
       RETURNING *
     `;
 
     const values = [
       dormId, name, bed_type,
       monthly_price, daily_price, summer_price,
-      price_type, term_price
+      term_price
     ];
 
     const result = await pool.query(query, values);
@@ -630,14 +692,13 @@ exports.createRoomTypesBulk = async (req, res) => {
       INSERT INTO room_types (
         dorm_id, room_name, bed_type,
         monthly_price, daily_price, summer_price,
-        price_type, term_price
-      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+        term_price
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7)
       ON CONFLICT (dorm_id, room_name) DO UPDATE SET
         bed_type       = EXCLUDED.bed_type,
         monthly_price  = EXCLUDED.monthly_price,
         daily_price    = EXCLUDED.daily_price,
         summer_price   = EXCLUDED.summer_price,
-        price_type     = EXCLUDED.price_type,
         term_price     = EXCLUDED.term_price
       RETURNING *
     `;
@@ -656,7 +717,7 @@ exports.createRoomTypesBulk = async (req, res) => {
       }
 
       const bed_type     = it.bed_type ?? it.bedType ?? null; // << รองรับ bedType >>
-      const price_type   = (it.price_type ?? 'รายเดือน').toString();
+      // removed price_type
 
       const monthly_price = toNumberOrNull(it.monthly_price);
       const daily_price   = toNumberOrNull(it.daily_price);
@@ -667,7 +728,7 @@ exports.createRoomTypesBulk = async (req, res) => {
         const r = await client.query(insertSql, [
           dormId, name, bed_type,
           monthly_price, daily_price, summer_price,
-          price_type, term_price
+          term_price
         ]);
         results.push(r.rows[0]);
       } catch (e) {
@@ -1069,17 +1130,43 @@ exports.approveTenant = async (req, res) => {
       return res.status(403).json({ message: "ไม่มีสิทธิ์เข้าถึงข้อมูลหอพักนี้" });
     }
 
-    // อัพเดตสถานะคำขอเป็น 'อนุมัติ'
-    await pool.query(
-      "UPDATE member_requests SET status = 'อนุมัติ' WHERE dorm_id = $1 AND user_id = $2",
-      [dormId, userId]
-    );
+    // ทำเป็นธุรกรรม: อนุมัติ + อัพเดต users + เขียน stay_history
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
 
-    // อัพเดต residence_dorm_id ของผู้ใช้
-    await pool.query(
-      "UPDATE users SET residence_dorm_id = $1 WHERE id = $2",
-      [dormId, userId]
-    );
+      await client.query(
+        "UPDATE member_requests SET status = 'อนุมัติ' WHERE dorm_id = $1 AND user_id = $2",
+        [dormId, userId]
+      );
+
+      await client.query(
+        "UPDATE users SET residence_dorm_id = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2",
+        [dormId, userId]
+      );
+
+      // ปิด stay ปัจจุบัน (ถ้ามี)
+      await client.query(
+        `UPDATE stay_history
+         SET end_date = NOW(), is_current = false, status = 'moved_out'
+         WHERE user_id = $1 AND is_current = true`,
+        [userId]
+      );
+
+      // เปิด stay ใหม่สำหรับหอนี้
+      await client.query(
+        `INSERT INTO stay_history (user_id, dorm_id, start_date, end_date, is_current, status)
+         VALUES ($1, $2, NOW(), NULL, true, 'active')`,
+        [userId, dormId]
+      );
+
+      await client.query('COMMIT');
+      client.release();
+    } catch (e) {
+      await client.query('ROLLBACK');
+      client.release();
+      throw e;
+    }
 
     res.json({ message: "ยืนยันผู้เช่าสำเร็จ" });
 
