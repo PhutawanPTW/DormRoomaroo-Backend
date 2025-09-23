@@ -365,7 +365,7 @@ exports.completeUserProfile = async (req, res) => {
       photoUrl: req.user.picture || null,
       memberType: userType,
       phoneNumber: phoneNumber || null,
-      residenceDormId: parsedDormitoryId,
+      residenceDormId: null, // ไม่ตั้ง residence_dorm_id จนกว่าจะได้รับการอนุมัติ
       managerName: userType === 'owner' ? managerName : null,
       secondaryPhone: userType === 'owner' ? secondaryPhone : null,
       lineId: userType === 'owner' ? lineId : null

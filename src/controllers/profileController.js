@@ -329,11 +329,8 @@ exports.changeDormitory = async (req, res) => {
       );
     }
 
-    // อัพเดต residence_dorm_id
-    await client.query(
-      "UPDATE users SET residence_dorm_id = $1, updated_at = CURRENT_TIMESTAMP WHERE firebase_uid = $2",
-      [new_dorm_id, uid]
-    );
+    // ไม่ต้องอัพเดต residence_dorm_id จนกว่าจะได้รับการอนุมัติ
+    // residence_dorm_id จะถูกอัพเดตเมื่อเจ้าของหออนุมัติผ่าน approveTenant
 
     // สร้างคำขอใหม่สำหรับหอพักใหม่
     const existingRequest = await client.query(

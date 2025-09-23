@@ -163,7 +163,6 @@ exports.getDormitoryDetails = async (req, res) => {
                 rt.monthly_price,
                 rt.daily_price,
                 rt.summer_price,
-                rt.price_type,
                 rt.term_price,
                 rt.max_occupancy
             FROM room_types rt
@@ -409,15 +408,14 @@ exports.editDormitory = async (req, res) => {
           `
                     INSERT INTO room_types (
                         dorm_id, room_name, bed_type, size_sqm, monthly_price,
-                        daily_price, summer_price, price_type, max_occupancy
-                    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+                        daily_price, summer_price, max_occupancy
+                    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
                     ON CONFLICT (dorm_id, room_name) DO UPDATE SET
                         bed_type = excluded.bed_type,
                         size_sqm = excluded.size_sqm,
                         monthly_price = excluded.monthly_price,
                         daily_price = excluded.daily_price,
                         summer_price = excluded.summer_price,
-                        price_type = excluded.price_type,
                         max_occupancy = excluded.max_occupancy,
                         is_available = true
                 `,
@@ -429,7 +427,6 @@ exports.editDormitory = async (req, res) => {
             monthlyPrice,
             dailyPrice,
             summerPrice,
-            roomType.priceType || "รายเดือน",
             roomType.maxOccupancy || null,
           ]
         );
@@ -465,7 +462,7 @@ exports.updateRoomType = async (req, res) => {
       const dormId = dormResult.rows[0].dorm_id;
   
       // รองรับ bedType เป็น alias ของ bed_type
-             const {
+      const { 
          room_name,
          bed_type,
          bedType,
@@ -473,7 +470,6 @@ exports.updateRoomType = async (req, res) => {
          daily_price,
          summer_price,
          term_price,
-         price_type
        } = req.body;
   
       const updateFields = [];
@@ -487,8 +483,7 @@ exports.updateRoomType = async (req, res) => {
       if (monthly_price !== undefined) { updateFields.push(`monthly_price = $${p++}`); values.push(monthly_price); }
       if (daily_price   !== undefined) { updateFields.push(`daily_price = $${p++}`);   values.push(daily_price); }
       if (summer_price  !== undefined) { updateFields.push(`summer_price = $${p++}`);  values.push(summer_price); }
-             if (term_price    !== undefined) { updateFields.push(`term_price = $${p++}`);    values.push(term_price); }
-       if (price_type    !== undefined) { updateFields.push(`price_type = $${p++}`);    values.push(price_type); }
+      if (term_price    !== undefined) { updateFields.push(`term_price = $${p++}`);    values.push(term_price); }
   
       if (updateFields.length === 0) {
         return res.status(400).json({ message: 'ไม่มีข้อมูลสำหรับอัพเดต' });

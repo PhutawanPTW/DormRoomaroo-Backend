@@ -34,9 +34,6 @@ router.get('/users', authController.getAllUsers);
 // Route สำหรับการเข้าสู่ระบบแอดมิน (Firebase)
 router.post('/admin-login', verifyFirebaseToken, authController.adminLogin);
 
-// Route สำหรับการเข้าสู่ระบบแอดมินโดยตรง (ไม่ผ่าน Firebase)
-router.post('/admin/login', authController.adminDirectLogin);
-
 // Route สำหรับเปลี่ยนรหัสผ่านแอดมิน
 router.post('/admin/change-password', verifyAdminToken, authController.changeAdminPassword);
 

@@ -197,22 +197,18 @@ exports.addDormitory = async (req, res) => {
         const summer_price = toNumberOrNull(rt.summer_price ?? rt.summerPrice);
         const term_price = toNumberOrNull(rt.term_price ?? rt.termPrice);
 
-        // ใช้ price_type ที่หน้าบ้านส่งมาเลย
-        const price_type = (rt.price_type ?? rt.priceType ?? "รายเดือน").toString();
-
         await client.query(
           `
     INSERT INTO room_types (
       dorm_id, room_name, bed_type,
       monthly_price, daily_price, summer_price,
-      price_type, term_price
-    ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+      term_price
+    ) VALUES ($1,$2,$3,$4,$5,$6,$7)
     ON CONFLICT (dorm_id, room_name) DO UPDATE SET
       bed_type       = EXCLUDED.bed_type,
       monthly_price  = EXCLUDED.monthly_price,
       daily_price    = EXCLUDED.daily_price,
       summer_price   = EXCLUDED.summer_price,
-      price_type     = EXCLUDED.price_type,
       term_price     = EXCLUDED.term_price
     `,
           [
@@ -222,7 +218,6 @@ exports.addDormitory = async (req, res) => {
             monthly_price,
             daily_price,
             summer_price,
-            price_type,
             term_price,
           ]
         );
