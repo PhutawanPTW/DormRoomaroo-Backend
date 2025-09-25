@@ -100,19 +100,28 @@ exports.createReview = async (req, res) => {
       return res.status(404).json({ message: "ไม่พบข้อมูลหอพัก" });
     }
 
-    // ตรวจสอบประวัติการพักจาก stay_history: เคยพักหรือกำลังพักในหอนี้
-    const stayCheck = await client.query(`
+    // ตรวจสอบกรณีที่ 1: เคยพักอาศัย (ไม่ว่าจะย้ายไปไหนแล้วก็ตาม)
+    const pastStayCheck = await client.query(`
       SELECT COUNT(*) AS stay_count
       FROM stay_history
       WHERE user_id = $1 AND dorm_id = $2
-        AND (is_current = true OR end_date >= CURRENT_DATE)
+        AND is_current = false
     `, [user.id, dormId]);
 
-    const stayedHere = parseInt(stayCheck.rows[0].stay_count) > 0;
-    if (!stayedHere) {
+    // ตรวจสอบกรณีที่ 2: กำลังพักอาศัย (ได้รับการอนุมัติแล้ว)
+    const currentStayCheck = await client.query(`
+      SELECT COUNT(*) AS approval_count
+      FROM member_requests
+      WHERE user_id = $1 AND dorm_id = $2 AND status = 'อนุมัติ'
+    `, [user.id, dormId]);
+
+    const isEligible = parseInt(pastStayCheck.rows[0].stay_count) > 0 || 
+                       parseInt(currentStayCheck.rows[0].approval_count) > 0;
+
+    if (!isEligible) {
       await client.query('ROLLBACK');
       return res.status(403).json({ 
-        message: "รีวิวได้เฉพาะผู้ที่เคยพักอาศัยหรือกำลังพักอาศัยในหอนี้" 
+        message: "รีวิวได้เฉพาะผู้ที่เคยพักอาศัยหรือกำลังพักอาศัยในหอนี้ (ต้องได้รับการอนุมัติจากเจ้าของหอ)" 
       });
     }
 
@@ -340,14 +349,23 @@ exports.checkReviewEligibility = async (req, res) => {
 
     const user = userResult.rows[0];
 
-    // ตรวจสอบจาก stay_history: เคยพักหรือกำลังพักในหอนี้
-    const stayCheck = await pool.query(`
+    // ตรวจสอบกรณีที่ 1: เคยพักอาศัย (ไม่ว่าจะย้ายไปไหนแล้วก็ตาม)
+    const pastStayCheck = await pool.query(`
       SELECT COUNT(*) AS stay_count
       FROM stay_history
       WHERE user_id = $1 AND dorm_id = $2
-        AND (is_current = true OR end_date >= CURRENT_DATE)
+        AND is_current = false
     `, [user.id, dormId]);
-    const isEligible = parseInt(stayCheck.rows[0].stay_count) > 0;
+
+    // ตรวจสอบกรณีที่ 2: กำลังพักอาศัย (ได้รับการอนุมัติแล้ว)
+    const currentStayCheck = await pool.query(`
+      SELECT COUNT(*) AS approval_count
+      FROM member_requests
+      WHERE user_id = $1 AND dorm_id = $2 AND status = 'อนุมัติ'
+    `, [user.id, dormId]);
+
+    const isEligible = parseInt(pastStayCheck.rows[0].stay_count) > 0 || 
+                       parseInt(currentStayCheck.rows[0].approval_count) > 0;
 
     // ตรวจสอบว่าผู้ใช้เคยรีวิวแล้วหรือไม่
     let hasReviewed = false;
@@ -362,12 +380,12 @@ exports.checkReviewEligibility = async (req, res) => {
     const response = {
       can_review: isEligible && !hasReviewed,
       has_reviewed: hasReviewed,
-      reason: !isEligible ? "รีวิวได้เฉพาะผู้ที่เคยพักอาศัยหรือกำลังพักอาศัยในหอนี้" : 
+      reason: !isEligible ? "รีวิวได้เฉพาะผู้ที่เคยพักอาศัยหรือกำลังพักอาศัยในหอนี้ (ต้องได้รับการอนุมัติจากเจ้าของหอ)" : 
               hasReviewed ? "คุณเคยรีวิวหอพักนี้แล้ว" : null
     };
 
     console.log('=== DEBUG API RESPONSE ===');
-    console.log('Final response being sent:', response);
+    // console.log('Final response being sent:', response);
     console.log('isEligible:', isEligible);
     console.log('hasReviewed:', hasReviewed);
     console.log('can_review:', response.can_review);

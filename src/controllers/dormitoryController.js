@@ -1136,7 +1136,7 @@ exports.approveTenant = async (req, res) => {
       await client.query('BEGIN');
 
       await client.query(
-        "UPDATE member_requests SET status = 'อนุมัติ' WHERE dorm_id = $1 AND user_id = $2",
+        "UPDATE member_requests SET status = 'อนุมัติ', approved_date = NOW() WHERE dorm_id = $1 AND user_id = $2",
         [dormId, userId]
       );
 
