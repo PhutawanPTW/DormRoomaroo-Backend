@@ -16,19 +16,13 @@ const {
   verifyAdminToken,
 } = require("../middleware/authMiddleware");
 
-// ===== Multer Config =====
+// Multer config for owner submit (edit endpoints moved elsewhere)
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: {
-    fileSize: 5 * 1024 * 1024, // 5MB limit per file
-    files: 10, // Maximum 10 files
-  },
+  limits: { fileSize: 5 * 1024 * 1024, files: 10 },
   fileFilter: (req, file, cb) => {
-    if (file.mimetype.startsWith("image/")) {
-      cb(null, true);
-    } else {
-      cb(new Error("Only image files are allowed!"), false);
-    }
+    if (file.mimetype.startsWith("image/")) cb(null, true);
+    else cb(new Error("Only image files are allowed!"), false);
   },
 });
 
@@ -92,52 +86,6 @@ router.get(
   addDormitoryController.getMySubmissions
 );
 
-// ===== IMAGE & ROOM TYPE ROUTES =====
-router.get("/:dormId/images", dormitoryController.getDormitoryImages);
-router.post(
-  "/:dormId/images",
-  verifyFirebaseToken,
-  upload.array("images", 10),
-  dormitoryController.uploadDormitoryImages
-);
-router.delete(
-  "/:dormId/images/:imageId",
-  verifyFirebaseToken,
-  dormitoryController.deleteDormitoryImage
-);
-router.put(
-  "/:dormId/images/:imageId/primary",
-  verifyFirebaseToken,
-  dormitoryController.setPrimaryImage
-);
-router.get("/:dormId/room-types", dormitoryController.getRoomTypesByDormId);
-router.post(
-  "/:dormId/room-types",
-  verifyFirebaseToken,
-  dormitoryController.createRoomType
-);
-// router.post(
-//   "/:dormId/room-types/bulk",
-//   verifyFirebaseToken,
-//   dormitoryController.createRoomTypesBulk
-// );
-router.put(
-  "/room-types/:roomTypeId",
-  verifyFirebaseToken,
-  editDormitoryController.updateRoomType
-);
-router.delete(
-  "/room-types/:roomTypeId",
-  verifyFirebaseToken,
-  deleteDormitoryController.deleteRoomType
-); // ✅ ใช้ controller ที่ถูกต้อง
-
-// ===== AMENITIES ROUTES =====
-router.get("/:dormId/amenities", dormitoryController.getDormitoryAmenities);
-router.post(
-  "/:dormId/amenities",
-  verifyFirebaseToken,
-  dormitoryController.addDormitoryAmenities
-);
+// Edit endpoints moved under /api/edit-dormitory in editDormitoryRoutes.js
 
 module.exports = router;

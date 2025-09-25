@@ -180,7 +180,8 @@ exports.registerWithEmail = async (req, res) => {
       photoUrl,
       memberType,
       phoneNumber,
-      residenceDormId: dormitoryIdFinal,
+      // สำคัญ: ยังไม่ตั้งหอพักให้ผู้ใช้จนกว่าจะได้รับการอนุมัติจากเจ้าของหอ
+      residenceDormId: null,
       // *** เพิ่ม owner fields ***
       managerName: memberType === 'owner' ? managerName : null,
       secondaryPhone: memberType === 'owner' ? secondaryPhone : null,

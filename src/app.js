@@ -19,6 +19,7 @@ const deleteDormitoryRoutes = require('./routes/deleteDormitoryRoutes');
 const profileRoutes = require('./routes/profileRoutes');
 const reviewRoutes = require('./routes/reviewRoutes');
 const stayRoutes = require('./routes/stayRoutes');
+const editDormitoryRoutes = require('./routes/editDormitoryRoutes');
 
 // Middleware
 app.use(cors());
@@ -41,6 +42,7 @@ app.use('/api/delete-dormitory', deleteDormitoryRoutes);
 app.use('/api/profile', profileRoutes);
 app.use('/api/reviews', reviewRoutes);
 app.use('/api/stays', stayRoutes);
+app.use('/api/edit-dormitory', editDormitoryRoutes);
 
 // Start Server
 app.listen(PORT, () => {
