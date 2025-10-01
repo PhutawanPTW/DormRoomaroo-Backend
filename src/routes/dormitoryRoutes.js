@@ -1,7 +1,6 @@
 // src/routes/dormitoryRoutes.js
 const express = require("express");
 const router = express.Router();
-const multer = require("multer");
 
 // ===== Controllers =====
 const dormitoryController = require("../controllers/dormitoryController");
@@ -16,23 +15,13 @@ const {
   verifyAdminToken,
 } = require("../middleware/authMiddleware");
 
-// Multer config for owner submit (edit endpoints moved elsewhere)
-const upload = multer({
-  storage: multer.memoryStorage(),
-  limits: { fileSize: 5 * 1024 * 1024, files: 10 },
-  fileFilter: (req, file, cb) => {
-    if (file.mimetype.startsWith("image/")) cb(null, true);
-    else cb(new Error("Only image files are allowed!"), false);
-  },
-});
-
 // ===== ZONE ROUTES =====
 router.get("/zones", dormitoryController.getAllZones);
 
 // ===== PUBLIC DORMITORY ROUTES =====
 router.get("/user/:userId", dormitoryController.getDormitoriesByUserId); // ดึงรายการหอพักทั้งหมดของ userId (จะ deprecated)
 router.get("/owner", verifyFirebaseToken, dormitoryController.getOwnerDormitories); // ดึงรายการหอของเจ้าของจาก token
-router.get("/", adminDormitoryController.getAllDormitories); // ดึงรายการหอพักทั้งหมด
+router.get("/", dormitoryController.getAllApprovedDormitories); // ดึงรายการหอพักทั้งหมดที่อนุมัติแล้ว (public)
 
 // ===== MAP ROUTES =====
 router.get("/map/all", dormitoryController.getAllDormitoriesForMap); // ดึงหอพักทั้งหมดสำหรับแผนที่
@@ -74,18 +63,8 @@ router.put("/:dormId/tenants/:userId/reject", verifyFirebaseToken, dormitoryCont
 router.put("/:dormId/tenants/:userId/cancel", verifyFirebaseToken, dormitoryController.cancelTenantApproval);
 
 // ===== OWNER ROUTES =====
-router.post(
-  "/submit",
-  verifyFirebaseToken,
-  upload.array("images", 10),
-  addDormitoryController.submitDormitory
-);
-router.get(
-  "/my/submissions",
-  verifyFirebaseToken,
-  addDormitoryController.getMySubmissions
-);
+// เส้น /submit และ /my/submissions ย้ายไปใช้ addDormitoryRoutes.js แล้ว
 
 // Edit endpoints moved under /api/edit-dormitory in editDormitoryRoutes.js
-
+ 
 module.exports = router;

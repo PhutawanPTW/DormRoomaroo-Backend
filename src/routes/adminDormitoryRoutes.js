@@ -5,6 +5,7 @@ const { verifyFirebaseToken, requireAdmin } = require('../middleware/authMiddlew
 
 // ===== ADMIN ROUTES =====
 router.get('/all', verifyFirebaseToken, requireAdmin, adminDormitoryController.getAllDormitories);
+router.get('/pending', verifyFirebaseToken, requireAdmin, adminDormitoryController.getPendingDormitories);
 // router.get('/:dormId', verifyFirebaseToken, requireAdmin, adminDormitoryController.getDormitoryDetailsByAdmin);
 // router.get('/:dormId/check-members', verifyFirebaseToken, requireAdmin, adminDormitoryController.checkDormitoryMembers); // เพิ่มเส้นใหม่
 router.put('/:dormId/approval', verifyFirebaseToken, requireAdmin, adminDormitoryController.updateDormitoryApproval);

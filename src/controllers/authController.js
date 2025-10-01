@@ -468,7 +468,7 @@ exports.adminLogin = async (req, res) => {
 
     const user = userResult.rows[0];
 
-    if (user.role !== 'admin') {
+    if (user.member_type !== 'admin') {
       return res.status(403).json({ message: 'ไม่มีสิทธิ์เข้าใช้งานส่วนแอดมิน' });
     }
 
@@ -479,7 +479,7 @@ exports.adminLogin = async (req, res) => {
       email: user.email,
       displayName: user.display_name,
       photoURL: user.photo_url || null,
-      role: user.role
+      memberType: user.member_type
     };
 
     res.status(200).json(adminProfile);

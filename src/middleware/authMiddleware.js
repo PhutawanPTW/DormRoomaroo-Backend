@@ -56,7 +56,7 @@ async function requireAdmin(req, res, next) {
   try {
     // ตรวจสอบสถานะแอดมินจากฐานข้อมูล
     const result = await pool.query(
-      'SELECT role FROM users WHERE firebase_uid = $1',
+      'SELECT member_type FROM users WHERE firebase_uid = $1',
       [req.user.uid]
     );
 
@@ -65,7 +65,7 @@ async function requireAdmin(req, res, next) {
     }
 
     const user = result.rows[0];
-    if (user.role !== 'admin') {
+    if (user.member_type !== 'admin') {
       return res.status(403).json({ error: 'Forbidden: Admin privileges required.' });
     }
 

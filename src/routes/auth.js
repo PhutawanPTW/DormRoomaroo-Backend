@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const authController = require('../controllers/authController');
 const { verifyFirebaseToken, verifyAdminToken } = require('../middleware/authMiddleware');
-const upload = require('../middleware/uploadMiddleware');
+const { uploadProfileImage } = require('../middleware/uploadMiddleware');
 
 // Route สำหรับ Google Sign-In (ส่ง ID Token มาให้ Backend Verify)
 router.post('/google-login', verifyFirebaseToken, authController.googleLogin);
@@ -15,7 +15,7 @@ router.post('/google-login', verifyFirebaseToken, authController.googleLogin);
 router.post(
   '/register', 
   verifyFirebaseToken, 
-  upload.single('profileImage'), 
+  uploadProfileImage.single('profileImage'), 
   authController.registerWithEmail
 );
 
