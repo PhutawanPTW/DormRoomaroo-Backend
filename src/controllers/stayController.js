@@ -30,7 +30,7 @@ exports.getUserStayHistory = async (req, res) => {
         d.dorm_name,
         d.address,
         z.zone_name
-      FROM stays s
+      FROM stay_history s
       JOIN dormitories d ON s.dorm_id = d.dorm_id
       LEFT JOIN zones z ON d.zone_id = z.zone_id
       WHERE s.user_id = $1
@@ -91,13 +91,13 @@ exports.createStayRecord = async (req, res) => {
 
     // ปิดประวัติการเข้าพักปัจจุบัน (ถ้ามี)
     await client.query(
-      "UPDATE stays SET end_date = CURRENT_TIMESTAMP, is_current = false WHERE user_id = $1 AND is_current = true",
+      "UPDATE stay_history SET end_date = CURRENT_TIMESTAMP, is_current = false WHERE user_id = $1 AND is_current = true",
       [userId]
     );
 
     // สร้างประวัติการเข้าพักใหม่
     const createStayQuery = `
-      INSERT INTO stays (user_id, dorm_id, start_date, is_current, status)
+      INSERT INTO stay_history (user_id, dorm_id, start_date, is_current, status)
       VALUES ($1, $2, $3, true, 'เข้าพัก')
       RETURNING stay_id
     `;
@@ -150,7 +150,7 @@ exports.updateStayRecord = async (req, res) => {
 
     // ตรวจสอบว่าประวัติการเข้าพักมีอยู่และเป็นของผู้ใช้นี้หรือไม่
     const stayResult = await client.query(
-      "SELECT stay_id, user_id, is_current FROM stays WHERE stay_id = $1",
+      "SELECT stay_id, user_id, is_current FROM stay_history WHERE stay_id = $1",
       [stayId]
     );
 
@@ -187,7 +187,7 @@ exports.updateStayRecord = async (req, res) => {
     if (updateFields.length > 0) {
       values.push(stayId);
       const updateQuery = `
-        UPDATE stays 
+        UPDATE stay_history 
         SET ${updateFields.join(', ')}
         WHERE stay_id = $${paramIndex}
       `;
@@ -247,7 +247,7 @@ exports.getDormitoryStayHistory = async (req, res) => {
         u.display_name,
         u.email,
         u.phone_number
-      FROM stays s
+      FROM stay_history s
       JOIN users u ON s.user_id = u.id
       WHERE s.dorm_id = $1
       ORDER BY s.start_date DESC
@@ -282,7 +282,7 @@ exports.updateStayHistoryOnMove = async (userId, oldDormId, newDormId) => {
     // ปิดประวัติการเข้าพักเก่า (ถ้ามี)
     if (oldDormId) {
       await client.query(
-        "UPDATE stays SET end_date = CURRENT_TIMESTAMP, is_current = false WHERE user_id = $1 AND dorm_id = $2 AND is_current = true",
+        "UPDATE stay_history SET end_date = CURRENT_TIMESTAMP, is_current = false WHERE user_id = $1 AND dorm_id = $2 AND is_current = true",
         [userId, oldDormId]
       );
     }
@@ -290,7 +290,7 @@ exports.updateStayHistoryOnMove = async (userId, oldDormId, newDormId) => {
     // สร้างประวัติการเข้าพักใหม่ (ถ้ามีหอพักใหม่)
     if (newDormId) {
       await client.query(
-        "INSERT INTO stays (user_id, dorm_id, start_date, is_current, status) VALUES ($1, $2, CURRENT_TIMESTAMP, true, 'เข้าพัก')",
+        "INSERT INTO stay_history (user_id, dorm_id, start_date, is_current, status) VALUES ($1, $2, CURRENT_TIMESTAMP, true, 'เข้าพัก')",
         [userId, newDormId]
       );
     }

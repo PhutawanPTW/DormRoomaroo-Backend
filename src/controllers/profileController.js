@@ -98,6 +98,7 @@ exports.updateUserProfile = async (req, res) => {
     const { uid } = req.user;
     const {
       display_name,
+      username,
       phone_number,
       manager_name,
       secondary_phone,
@@ -127,6 +128,26 @@ exports.updateUserProfile = async (req, res) => {
     if (display_name !== undefined) {
       updateFields.push(`display_name = $${paramIndex++}`);
       values.push(display_name);
+    }
+
+    // ตรวจสอบและอัปเดต username (ต้องไม่ซ้ำกับผู้ใช้อื่น)
+    if (username !== undefined) {
+      const trimmedUsername = String(username).trim();
+      if (trimmedUsername.length === 0) {
+        await client.query('ROLLBACK');
+        return res.status(400).json({ message: "username ห้ามว่าง" });
+      }
+      // ตรวจสอบซ้ำ (case-sensitive ตาม DB; หากต้องการ case-insensitive ให้แปลง lower())
+      const dupCheck = await client.query(
+        `SELECT id FROM users WHERE username = $1 AND firebase_uid <> $2 LIMIT 1`,
+        [trimmedUsername, uid]
+      );
+      if (dupCheck.rows.length > 0) {
+        await client.query('ROLLBACK');
+        return res.status(409).json({ message: "username นี้ถูกใช้แล้ว" });
+      }
+      updateFields.push(`username = $${paramIndex++}`);
+      values.push(trimmedUsername);
     }
 
     if (phone_number !== undefined) {
@@ -214,65 +235,16 @@ exports.uploadProfileImage = async (req, res) => {
   }
 };
 
-// เปลี่ยนรหัสผ่าน (สำหรับ Email/Password users เท่านั้น)
 exports.changePassword = async (req, res) => {
-  const client = await pool.connect();
   try {
-    const { uid } = req.user;
-    const { current_password, new_password } = req.body;
-
-    if (!current_password || !new_password) {
-      return res.status(400).json({ message: "กรุณาระบุรหัสผ่านปัจจุบันและรหัสผ่านใหม่" });
-    }
-
-    await client.query('BEGIN');
-
-    // ตรวจสอบว่าผู้ใช้เป็น Email/Password user หรือไม่
-    const userResult = await client.query(
-      "SELECT id, email, password_hash FROM users WHERE firebase_uid = $1",
-      [uid]
-    );
-
-    if (userResult.rows.length === 0) {
-      await client.query('ROLLBACK');
-      return res.status(404).json({ message: "ไม่พบข้อมูลผู้ใช้" });
-    }
-
-    const user = userResult.rows[0];
-
-    // ตรวจสอบว่ามี password_hash หรือไม่ (Email/Password user)
-    if (!user.password_hash) {
-      await client.query('ROLLBACK');
-      return res.status(400).json({ message: "ไม่สามารถเปลี่ยนรหัสผ่านได้สำหรับ Google Account" });
-    }
-
-    // ตรวจสอบรหัสผ่านปัจจุบัน
-    const passwordMatch = await bcrypt.compare(current_password, user.password_hash);
-    if (!passwordMatch) {
-      await client.query('ROLLBACK');
-      return res.status(400).json({ message: "รหัสผ่านปัจจุบันไม่ถูกต้อง" });
-    }
-
-    // สร้าง hash รหัสผ่านใหม่
-    const saltRounds = 10;
-    const newPasswordHash = await bcrypt.hash(new_password, saltRounds);
-
-    // อัพเดตรหัสผ่าน
-    await client.query(
-      "UPDATE users SET password_hash = $1, updated_at = CURRENT_TIMESTAMP WHERE firebase_uid = $2",
-      [newPasswordHash, uid]
-    );
-
-    await client.query('COMMIT');
-
-    res.json({ message: "เปลี่ยนรหัสผ่านสำเร็จ" });
-
+    return res.status(501).json({
+      message: "ไม่รองรับการเปลี่ยนรหัสผ่านผ่าน Backend",
+      detail:
+        "โปรดใช้ Firebase Client SDK บน Frontend (updatePassword) หลังจากผู้ใช้ re-authenticate แล้ว",
+    });
   } catch (error) {
-    await client.query('ROLLBACK');
-    console.error("Error changing password:", error);
-    res.status(500).json({ message: "Internal Server Error", error: error.message });
-  } finally {
-    client.release();
+    console.error("Error in changePassword handler:", error);
+    return res.status(500).json({ message: "Internal Server Error", error: error.message });
   }
 };
 
@@ -332,18 +304,11 @@ exports.changeDormitory = async (req, res) => {
     // ไม่ต้องอัพเดต residence_dorm_id จนกว่าจะได้รับการอนุมัติ
     // residence_dorm_id จะถูกอัพเดตเมื่อเจ้าของหออนุมัติผ่าน approveTenant
 
-    // สร้างคำขอใหม่สำหรับหอพักใหม่
-    const existingRequest = await client.query(
-      "SELECT * FROM member_requests WHERE user_id = $1 AND dorm_id = $2",
+    // แนวทาง A: สร้างคำขอใหม่ทุกครั้ง (เก็บประวัติทุกครั้ง)
+    await client.query(
+      "INSERT INTO member_requests (user_id, dorm_id, request_date, status) VALUES ($1, $2, CURRENT_TIMESTAMP, 'รออนุมัติ')",
       [user.id, new_dorm_id]
     );
-
-    if (existingRequest.rows.length === 0) {
-      await client.query(
-        "INSERT INTO member_requests (user_id, dorm_id, request_date, status) VALUES ($1, $2, CURRENT_TIMESTAMP, 'รออนุมัติ')",
-        [user.id, new_dorm_id]
-      );
-    }
 
     // อัพเดตประวัติการเข้าพัก
     await stayController.updateStayHistoryOnMove(user.id, oldDormId, new_dorm_id);

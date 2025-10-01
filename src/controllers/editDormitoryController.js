@@ -1,7 +1,7 @@
 // src/controllers/editDormitoryController.js
 const pool = require("../db");
 
-// อัพเดตข้อมูลหอพักพื้นฐาน (owner)
+// อัพเดตข้อมูลหอพักพื้นฐาน (owner) - รองรับ partial update โดย merge ค่าปัจจุบันกับค่าที่ส่งมา
 exports.updateDormitory = async (req, res) => {
   const client = await pool.connect();
   try {
@@ -25,30 +25,55 @@ exports.updateDormitory = async (req, res) => {
       return res.status(404).json({ message: "ไม่พบข้อมูลหอพัก" });
     }
 
-    // ตรวจสอบข้อมูลพื้นฐาน
-    const { 
-      dormName, 
-      zoneId, 
-      address, 
+    // ดึงค่าปัจจุบันของหอพักเพื่อทำการ merge
+    const currentDormResult = await client.query(
+      `SELECT dorm_name, zone_id, address, dorm_description, latitude, longitude,
+              electricity_type, electricity_rate, water_type, water_rate
+       FROM dormitories WHERE dorm_id = $1`,
+      [dormId]
+    );
+    if (currentDormResult.rows.length === 0) {
+      return res.status(404).json({ message: "ไม่พบข้อมูลหอพัก" });
+    }
+    const current = currentDormResult.rows[0];
+
+    // อ่านค่าที่ส่งมา (camelCase ตามที่ Frontend ใช้)
+    const {
+      dormName,
+      zoneId,
+      address,
       description,
       latitude,
       longitude,
       electricityType,
       electricityRate,
       waterType,
-      waterRate
+      waterRate,
     } = req.body;
-    const errors = [];
 
-    if (!dormName) errors.push("กรุณากรอกชื่อหอพัก");
-    if (!zoneId) errors.push("กรุณาเลือกโซน");
-    if (!address) errors.push("กรุณากรอกที่อยู่");
-    if (!description) errors.push("กรุณากรอกรายละเอียดหอพัก");
+    // สร้างค่า merged โดยใช้ค่าที่ส่งมา ถ้าไม่ส่งมาก็ใช้ค่าปัจจุบัน
+    const merged = {
+      dorm_name: dormName !== undefined ? String(dormName).trim() : current.dorm_name,
+      zone_id: zoneId !== undefined ? zoneId : current.zone_id,
+      address: address !== undefined ? String(address).trim() : current.address,
+      dorm_description: description !== undefined ? String(description).trim() : current.dorm_description,
+      latitude: latitude !== undefined && latitude !== null && `${latitude}` !== '' ? parseFloat(latitude) : current.latitude,
+      longitude: longitude !== undefined && longitude !== null && `${longitude}` !== '' ? parseFloat(longitude) : current.longitude,
+      electricity_type: electricityType !== undefined ? electricityType : current.electricity_type,
+      electricity_rate: electricityRate !== undefined ? electricityRate : current.electricity_rate,
+      water_type: waterType !== undefined ? waterType : current.water_type,
+      water_rate: waterRate !== undefined ? waterRate : current.water_rate,
+    };
+
+    // ตรวจสอบความถูกต้องหลัง merge เฉพาะฟิลด์จำเป็น
+    const errors = [];
+    if (!merged.dorm_name) errors.push("กรุณากรอกชื่อหอพัก");
+    if (!merged.zone_id) errors.push("กรุณาเลือกโซน");
+    if (!merged.address) errors.push("กรุณากรอกที่อยู่");
+    if (!merged.dorm_description) errors.push("กรุณากรอกรายละเอียดหอพัก");
 
     if (errors.length > 0) {
-      return res
-        .status(400)
-        .json({ message: "ข้อมูลไม่ถูกต้อง", errors: errors });
+      return res.status(400).json({ message: "ข้อมูลไม่ถูกต้อง", errors });
     }
 
     await client.query("BEGIN");
@@ -68,16 +93,16 @@ exports.updateDormitory = async (req, res) => {
       WHERE dorm_id = $11
     `;
     await client.query(updateQuery, [
-      dormName.trim(),
-      zoneId,
-      address.trim(),
-      description.trim(),
-      latitude || null,
-      longitude || null,
-      electricityType || null,
-      electricityRate || null,
-      waterType || null,
-      waterRate || null,
+      merged.dorm_name,
+      merged.zone_id,
+      merged.address,
+      merged.dorm_description,
+      merged.latitude || null,
+      merged.longitude || null,
+      merged.electricity_type || null,
+      merged.electricity_rate || null,
+      merged.water_type || null,
+      merged.water_rate || null,
       dormId,
     ]);
     await client.query("COMMIT");
@@ -92,6 +117,53 @@ exports.updateDormitory = async (req, res) => {
         message: "เกิดข้อผิดพลาดในการอัพเดตข้อมูลหอพัก",
         error: error.message,
       });
+  } finally {
+    client.release();
+  }
+};
+
+// อัปเดตสิ่งอำนวยความสะดวกแบบบางส่วน (partial update)
+// รองรับ upsert ตาม (dorm_id, amenity_id)
+// Payload: { amenities: [{ amenity_id, is_available?, location_type?, amenity_name? }, ...] }
+exports.updateDormitoryAmenities = async (req, res) => {
+  const client = await pool.connect();
+  try {
+    const { dormId } = req.params;
+    const { amenities } = req.body;
+
+    if (!Array.isArray(amenities) || amenities.length === 0) {
+      return res.status(400).json({ message: 'ต้องระบุ amenities เป็นอาร์เรย์ และมีอย่างน้อย 1 รายการ' });
+    }
+
+    await client.query('BEGIN');
+
+    for (const item of amenities) {
+      const amenityId = item.amenity_id || item.id;
+      if (!amenityId) continue;
+
+      const isAvailable = item.is_available === undefined ? true : !!item.is_available;
+      const locationType = item.location_type || 'indoor';
+      const amenityName = item.amenity_name || null;
+
+      await client.query(
+        `INSERT INTO dormitory_amenities (dorm_id, amenity_id, location_type, amenity_name, is_available)
+         VALUES ($1, $2, $3, $4, $5)
+         ON CONFLICT (dorm_id, amenity_id)
+         DO UPDATE SET
+           location_type = EXCLUDED.location_type,
+           amenity_name = EXCLUDED.amenity_name,
+           is_available = EXCLUDED.is_available`,
+        [dormId, amenityId, locationType, amenityName, isAvailable]
+      );
+    }
+
+    await client.query('COMMIT');
+
+    res.json({ message: 'อัปเดตสิ่งอำนวยความสะดวกสำเร็จ (partial update)' });
+  } catch (error) {
+    await client.query('ROLLBACK');
+    console.error('Error updating dormitory amenities:', error);
+    res.status(500).json({ message: 'เกิดข้อผิดพลาดในการอัปเดตสิ่งอำนวยความสะดวก', error: error.message });
   } finally {
     client.release();
   }
@@ -502,7 +574,7 @@ exports.updateRoomType = async (req, res) => {
         return res.status(404).json({ message: 'ไม่พบข้อมูลประเภทห้อง' });
       }
   
-      await updateDormitoryPriceRange(dormId);
+      await exports.updateDormitoryPriceRange(dormId);
   
       res.json({ message: 'อัพเดตข้อมูลประเภทห้องสำเร็จ', roomType: result.rows[0] });
     } catch (error) {

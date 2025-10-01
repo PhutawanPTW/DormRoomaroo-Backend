@@ -31,7 +31,41 @@ exports.getAllDormitories = async (req, res) => {
   }
 };
 
-// ฟังก์ชันสำหรับอนุมัติหรือปฏิเสธหอพัก
+// ฟังก์ชันสำหรับดูรายการหอพักที่รอการอนุมัติ (สำหรับผู้ดูแลระบบ)
+exports.getPendingDormitories = async (req, res) => {
+  try {
+    const query = `
+            SELECT 
+                d.dorm_id,
+                d.dorm_name,
+                d.address,
+                d.approval_status,
+                d.created_date AS submitted_date,
+                z.zone_name,
+                u.username AS owner_username,
+                u.display_name AS owner_name,
+                (SELECT image_url FROM dormitory_images WHERE dorm_id = d.dorm_id AND is_primary = true LIMIT 1) as main_image_url
+            FROM dormitories d
+            LEFT JOIN zones z ON d.zone_id = z.zone_id
+            LEFT JOIN users u ON d.owner_id = u.id
+            WHERE d.approval_status = 'รออนุมัติ'
+            ORDER BY d.created_date DESC
+        `;
+
+    console.log("🔍 [getPendingDormitories] Executing query:", query);
+    const result = await pool.query(query);
+    console.log("📊 [getPendingDormitories] Query result:", result.rows);
+    console.log("📈 [getPendingDormitories] Number of pending dormitories:", result.rows.length);
+    
+    res.json(result.rows);
+  } catch (error) {
+    console.error("Error fetching pending dormitories:", error);
+    res
+      .status(500)
+      .json({ message: "เกิดข้อผิดพลาดในการดึงข้อมูลหอพักที่รอการอนุมัติ" });
+  }
+};
+
 exports.updateDormitoryApproval = async (req, res) => {
   const client = await pool.connect();
   try {

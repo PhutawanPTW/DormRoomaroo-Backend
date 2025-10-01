@@ -1,24 +1,32 @@
 const express = require('express');
 const router = express.Router();
 const addDormitoryController = require('../controllers/AddDormitoryController');
-const editDormitoryController = require('../controllers/editDormitoryController');
+const dormitoryController = require('../controllers/dormitoryController');
 const { verifyFirebaseToken } = require('../middleware/authMiddleware');
+const { uploadDormitoryImages } = require('../middleware/uploadMiddleware');
 
-// ============== Routes หลักสำหรับเพิ่มข้อมูลหอพัก ==============
+// ============== ADD DORMITORY ROUTES (Create-only, like leading platforms) ==============
+// แนวปฏิบัติ: แยกเส้น "เพิ่ม" ออกจาก "แก้ไข" ชัดเจน
 
-// เพิ่มข้อมูลหอพัก (เริ่มจากข้อมูลพื้นฐาน)
+// [ADD] สร้างหอพักใหม่ (ข้อมูลพื้นฐาน + ค่าน้ำไฟ/พิกัด/คำอธิบาย)
 router.post('/', verifyFirebaseToken, addDormitoryController.addDormitory);
 
-// ดึงข้อมูลหอพัก
+// [ADD] ดึงข้อมูลหอพักที่เพิ่งสร้าง (ใช้ตรวจสอบ/รีวิวก่อนทำขั้นตอนต่อไป)
 router.get('/:dormId', verifyFirebaseToken, addDormitoryController.getDormitory);
 
-// อัพเดตข้อมูลหอพัก
-router.put('/:dormId', verifyFirebaseToken, editDormitoryController.updateDormitory);
-
-// เส้นใหม่ที่ชัดเจนสำหรับ owner
+// [ADD] ดึงรายการหอทั้งหมดของเจ้าของที่ล็อกอิน (สำหรับ Owner Dashboard)
 router.get('/owner/dormitories', verifyFirebaseToken, addDormitoryController.getMyDormitories);
 
-// ============== Routes เดิม (คอมเม้นไว้ก่อน) ==============
+// [ADD] อัปโหลดรูปภาพหอพักที่เพิ่งสร้าง (สำหรับขั้นตอนการเพิ่มหอ)
+router.post('/:dormId/images', verifyFirebaseToken, uploadDormitoryImages.array('images', 20), dormitoryController.uploadDormitoryImages);
+
+// [ADD] เพิ่มประเภทห้องให้หอพักที่เพิ่งสร้าง (สำหรับขั้นตอนการเพิ่มหอ)
+router.post('/:dormId/room-types', verifyFirebaseToken, dormitoryController.createRoomType);
+
+// [ADD] เพิ่มสิ่งอำนวยความสะดวกให้หอพักที่เพิ่งสร้าง (สำหรับขั้นตอนการเพิ่มหอ)
+router.post('/:dormId/amenities', verifyFirebaseToken, dormitoryController.addDormitoryAmenities);
+
+// ============== Legacy (คอมเมนต์เก็บไว้เพื่ออ้างอิง) ==============
 
 /*
 // เพิ่มข้อมูลหอพักแบบครบถ้วน

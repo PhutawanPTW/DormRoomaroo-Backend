@@ -480,6 +480,25 @@ exports.getLatestDormitories = async (req, res) => {
   }
 };
 
+// ดึงหอพักทั้งหมดที่อนุมัติแล้ว (สำหรับ public)
+exports.getAllApprovedDormitories = async (req, res) => {
+  try {
+    const query = `
+      SELECT d.*, z.zone_name, ${MAIN_IMAGE_SUBQUERY}
+      FROM dormitories d
+      LEFT JOIN zones z ON d.zone_id = z.zone_id
+      WHERE d.approval_status = 'อนุมัติ'
+      ORDER BY d.created_date DESC
+    `;
+    
+    const result = await pool.query(query);
+    res.json(result.rows);
+  } catch (error) {
+    console.error("Error fetching all approved dormitories:", error);
+    res.status(500).json({ message: "เกิดข้อผิดพลาดในการดึงข้อมูลหอพักทั้งหมด" });
+  }
+};
+
 // ดึงรูปทั้งหมดของหอพักตาม dorm_id
 exports.getDormitoryImages = async (req, res) => {
   try {
@@ -854,6 +873,17 @@ exports.getDormitoryAmenities = async (req, res) => {
   }
 };
 
+// อัปเดตสิ่งอำนวยความสะดวกแบบบางส่วน (partial update)
+// รองรับการ upsert ตาม (dorm_id, amenity_id) และตั้งค่า is_available/location_type/amenity_name ตามที่ส่งมา
+// รูปแบบ payload:
+// {
+//   amenities: [
+//     { amenity_id: 1, is_available: true, location_type: 'indoor', amenity_name: null },
+//     { amenity_id: 7, is_available: false }
+//   ]
+// }
+// moved to editDormitoryController.updateDormitoryAmenities
+
 // ============== ADMIN ENDPOINTS ==============
 // (ย้ายไปไฟล์ใหม่ adminDormitoryController.js)
 // exports.getAllDormitoriesAdmin = ...
@@ -1038,12 +1068,12 @@ exports.getDormitoryTenants = async (req, res) => {
         u.email,
         u.phone_number,
         u.profile_image_url,
-        mr.created_at,
+        mr.request_date,
         'รออนุมัติ' as status
       FROM member_requests mr
       JOIN users u ON mr.user_id = u.id
       WHERE mr.dorm_id = $1 AND mr.status = 'รออนุมัติ'
-      ORDER BY mr.created_at DESC
+      ORDER BY mr.request_date DESC
     `;
 
     const pendingRequestsResult = await pool.query(pendingRequestsQuery, [dormId]);
@@ -1697,12 +1727,12 @@ exports.getDormitoryForMapPopup = async (req, res) => {
       SELECT 
         r.rating,
         r.comment,
-        r.created_at,
+        r.review_date,
         u.display_name
       FROM reviews r
       JOIN users u ON r.user_id = u.id
       WHERE r.dorm_id = $1
-      ORDER BY r.created_at DESC
+      ORDER BY r.review_date DESC
       LIMIT 3
     `;
 
@@ -1732,7 +1762,7 @@ exports.getDormitoryForMapPopup = async (req, res) => {
         rating: review.rating,
         comment: review.comment,
         reviewer: review.display_name,
-        date: review.created_at
+        date: review.review_date
       }))
     };
 

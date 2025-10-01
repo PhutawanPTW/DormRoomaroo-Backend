@@ -34,6 +34,8 @@ app.get('/', (req, res) => {
 
 // API Routes
 app.use('/api/auth', authRoutes);
+// เพิ่ม route สำหรับแก้ปัญหา /api/api/ ที่ Frontend เรียกผิด
+app.use('/api/api/auth', authRoutes);
 app.use('/api/dormitories', dormitoryRoutes);
 app.use('/api/zones', zoneRoutes);
 app.use('/api/admin/dormitories', adminDormitoryRoutes);
