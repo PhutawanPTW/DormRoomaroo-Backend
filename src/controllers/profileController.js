@@ -293,18 +293,27 @@ exports.changeDormitory = async (req, res) => {
 
     const oldDormId = user.residence_dorm_id;
 
-    // ถ้ามีหอพักเก่า ให้ยกเลิกคำขอในหอพักเก่า
+    // 1. ยกเลิกคำขอรออนุมัติทั้งหมด (ถ้ามี)
+    await client.query(
+      "UPDATE member_requests SET status = 'ยกเลิก' WHERE user_id = $1 AND status = 'รออนุมัติ'",
+      [user.id]
+    );
+
+    // 2. ถ้ามีหอพักปัจจุบัน ให้ยกเลิกคำขอในหอพักปัจจุบันและอัปเดต residence_dorm_id เป็น NULL
     if (oldDormId && oldDormId !== new_dorm_id) {
       await client.query(
         "UPDATE member_requests SET status = 'ยกเลิก' WHERE user_id = $1 AND dorm_id = $2",
         [user.id, oldDormId]
       );
+      
+      // อัปเดต residence_dorm_id เป็น NULL เมื่อย้ายหอ (รอการอนุมัติหอใหม่)
+      await client.query(
+        "UPDATE users SET residence_dorm_id = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = $1",
+        [user.id]
+      );
     }
 
-    // ไม่ต้องอัพเดต residence_dorm_id จนกว่าจะได้รับการอนุมัติ
-    // residence_dorm_id จะถูกอัพเดตเมื่อเจ้าของหออนุมัติผ่าน approveTenant
-
-    // แนวทาง A: สร้างคำขอใหม่ทุกครั้ง (เก็บประวัติทุกครั้ง)
+    // 3. สร้างคำขอใหม่สำหรับหอพักที่เลือก (สร้างใหม่ทุกครั้งเพื่อเก็บประวัติ)
     await client.query(
       "INSERT INTO member_requests (user_id, dorm_id, request_date, status) VALUES ($1, $2, CURRENT_TIMESTAMP, 'รออนุมัติ')",
       [user.id, new_dorm_id]

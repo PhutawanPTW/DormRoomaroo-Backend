@@ -37,4 +37,7 @@ router.post('/admin-login', verifyFirebaseToken, authController.adminLogin);
 // Route สำหรับเปลี่ยนรหัสผ่านแอดมิน
 router.post('/admin/change-password', verifyAdminToken, authController.changeAdminPassword);
 
+// Forgot password flow (no token required)
+router.post('/forgot-password', authController.forgotPassword);
+
 module.exports = router;

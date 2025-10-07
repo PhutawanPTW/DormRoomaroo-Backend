@@ -1165,9 +1165,31 @@ exports.approveTenant = async (req, res) => {
     try {
       await client.query('BEGIN');
 
-      await client.query(
-        "UPDATE member_requests SET status = 'อนุมัติ', approved_date = NOW() WHERE dorm_id = $1 AND user_id = $2",
+      // หาคำขอที่ต้องการอนุมัติ (ล่าสุด)
+      const requestResult = await client.query(
+        `SELECT request_id FROM member_requests 
+         WHERE dorm_id = $1 AND user_id = $2 AND status = 'รออนุมัติ'
+         ORDER BY request_date DESC LIMIT 1`,
         [dormId, userId]
+      );
+
+      if (requestResult.rows.length === 0) {
+        await client.query('ROLLBACK');
+        return res.status(404).json({ message: "ไม่พบคำขอที่รออนุมัติ" });
+      }
+
+      const requestId = requestResult.rows[0].request_id;
+
+      // ยกเลิกคำขอรออนุมัติอื่นๆ ของผู้ใช้คนนี้ในหอนี้ (ยกเว้นคำขอที่เลือก)
+      await client.query(
+        "UPDATE member_requests SET status = 'ยกเลิก' WHERE dorm_id = $1 AND user_id = $2 AND status = 'รออนุมัติ' AND request_id != $3",
+        [dormId, userId, requestId]
+      );
+
+      // อนุมัติคำขอที่เลือก
+      await client.query(
+        "UPDATE member_requests SET status = 'อนุมัติ', approved_date = NOW() WHERE request_id = $1",
+        [requestId]
       );
 
       await client.query(
@@ -1235,11 +1257,97 @@ exports.rejectTenant = async (req, res) => {
       return res.status(403).json({ message: "ไม่มีสิทธิ์เข้าถึงข้อมูลหอพักนี้" });
     }
 
-    // อัพเดตสถานะคำขอเป็น 'ปฏิเสธ' พร้อม response_note
-    await pool.query(
-      "UPDATE member_requests SET status = 'ปฏิเสธ', response_note = $1 WHERE dorm_id = $2 AND user_id = $3",
-      [response_note || null, dormId, userId]
-    );
+    // ใช้ transaction เพื่อความปลอดภัย
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+
+      // อัพเดตสถานะคำขอเป็น 'ปฏิเสธ' พร้อม response_note
+      await client.query(
+        "UPDATE member_requests SET status = 'ปฏิเสธ', response_note = $1 WHERE dorm_id = $2 AND user_id = $3",
+        [response_note || null, dormId, userId]
+      );
+
+      // ตรวจสอบว่าผู้ใช้มีหอพักปัจจุบันหรือไม่
+      const userResult = await client.query(
+        "SELECT residence_dorm_id FROM users WHERE id = $1",
+        [userId]
+      );
+
+      const currentDormId = userResult.rows[0]?.residence_dorm_id;
+
+      // ถ้าผู้ใช้ไม่มีหอพักปัจจุบัน (residence_dorm_id = NULL)
+      // ตรวจสอบว่าเป็นการย้ายหอหรือสมัครใหม่
+      if (!currentDormId) {
+        // หาคำขอที่ถูกยกเลิกล่าสุด (อาจเป็นการย้ายหอ)
+        const lastCanceledResult = await client.query(
+          `SELECT dorm_id FROM member_requests 
+           WHERE user_id = $1 AND status = 'ยกเลิก' 
+           ORDER BY request_date DESC LIMIT 1`,
+          [userId]
+        );
+
+        // หาคำขอที่อนุมัติล่าสุด (หอเก่าที่ยังไม่ถูกยกเลิก)
+        const lastApprovedResult = await client.query(
+          `SELECT dorm_id FROM member_requests 
+           WHERE user_id = $1 AND status = 'อนุมัติ' 
+           ORDER BY approved_date DESC LIMIT 1`,
+          [userId]
+        );
+
+        // ถ้ามีคำขอที่ถูกยกเลิกล่าสุด และมีคำขอที่อนุมัติ
+        // และคำขอที่ยกเลิกใหม่กว่าคำขอที่อนุมัติ = การย้ายหอ
+        if (lastCanceledResult.rows.length > 0 && lastApprovedResult.rows.length > 0) {
+          const lastCanceledDate = lastCanceledResult.rows[0].request_date;
+          const lastApprovedDate = lastApprovedResult.rows[0].approved_date;
+          
+          // ถ้าคำขอที่ยกเลิกใหม่กว่าคำขอที่อนุมัติ = การย้ายหอ
+          // ไม่ต้องกลับไปหอเก่า เพราะเขาเลือกย้ายออกไปแล้ว
+          if (lastCanceledDate > lastApprovedDate) {
+            // ไม่ทำอะไร - ให้ residence_dorm_id = NULL (ไม่มีหอพัก)
+          } else {
+            // คำขอที่อนุมัติใหม่กว่า = สมัครใหม่
+            // กลับไปหอพักเก่าที่เคยอนุมัติแล้ว
+            const lastApprovedDormId = lastApprovedResult.rows[0].dorm_id;
+            
+            await client.query(
+              "UPDATE users SET residence_dorm_id = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2",
+              [lastApprovedDormId, userId]
+            );
+
+            await client.query(
+              `INSERT INTO stay_history (user_id, dorm_id, start_date, end_date, is_current, status)
+               VALUES ($1, $2, NOW(), NULL, true, 'active')`,
+              [userId, lastApprovedDormId]
+            );
+          }
+        } else if (lastApprovedResult.rows.length > 0) {
+          // ไม่มีคำขอที่ยกเลิก = สมัครใหม่
+          // กลับไปหอพักเก่าที่เคยอนุมัติแล้ว
+          const lastApprovedDormId = lastApprovedResult.rows[0].dorm_id;
+          
+          await client.query(
+            "UPDATE users SET residence_dorm_id = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2",
+            [lastApprovedDormId, userId]
+          );
+
+          await client.query(
+            `INSERT INTO stay_history (user_id, dorm_id, start_date, end_date, is_current, status)
+             VALUES ($1, $2, NOW(), NULL, true, 'active')`,
+            [userId, lastApprovedDormId]
+          );
+        }
+        // ถ้าไม่พบหอพักเก่าที่เคยอนุมัติ (สมาชิกใหม่)
+        // ให้ปล่อยให้ residence_dorm_id = NULL (ไม่มีหอพัก)
+      }
+
+      await client.query('COMMIT');
+      client.release();
+    } catch (e) {
+      await client.query('ROLLBACK');
+      client.release();
+      throw e;
+    }
 
     res.json({ message: "ปฏิเสธผู้เช่าสำเร็จ" });
 
@@ -1277,17 +1385,38 @@ exports.cancelTenantApproval = async (req, res) => {
       return res.status(403).json({ message: "ไม่มีสิทธิ์เข้าถึงข้อมูลหอพักนี้" });
     }
 
-    // อัพเดต residence_dorm_id ของผู้ใช้เป็น null
-    await pool.query(
-      "UPDATE users SET residence_dorm_id = NULL WHERE id = $1 AND residence_dorm_id = $2",
-      [userId, dormId]
-    );
+    // ใช้ transaction เพื่อความปลอดภัย
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
 
-    // อัพเดตสถานะคำขอเป็น 'รออนุมัติ' (ให้กลับมาใหม่)
-    await pool.query(
-      "UPDATE member_requests SET status = 'รออนุมัติ' WHERE dorm_id = $1 AND user_id = $2",
-      [dormId, userId]
-    );
+      // อัพเดต residence_dorm_id ของผู้ใช้เป็น null
+      await client.query(
+        "UPDATE users SET residence_dorm_id = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = $1 AND residence_dorm_id = $2",
+        [userId, dormId]
+      );
+
+      // ปิด stay ปัจจุบัน
+      await client.query(
+        `UPDATE stay_history
+         SET end_date = NOW(), is_current = false, status = 'cancelled'
+         WHERE user_id = $1 AND dorm_id = $2 AND is_current = true`,
+        [userId, dormId]
+      );
+
+      // อัพเดตสถานะคำขอเป็น 'ยกเลิก' (ไม่ใช่ 'รออนุมัติ' เพื่อไม่ให้ชน constraint)
+      await client.query(
+        "UPDATE member_requests SET status = 'ยกเลิก' WHERE dorm_id = $1 AND user_id = $2 AND status = 'อนุมัติ'",
+        [dormId, userId]
+      );
+
+      await client.query('COMMIT');
+      client.release();
+    } catch (e) {
+      await client.query('ROLLBACK');
+      client.release();
+      throw e;
+    }
 
     res.json({ message: "ยกเลิกการยืนยันผู้เช่าสำเร็จ" });
 
@@ -1358,27 +1487,26 @@ exports.getAllOwnerTenants = async (req, res) => {
 
     const allRequestsResult = await pool.query(allRequestsQuery, [dormIds]);
 
-    // ป้องกันข้อมูลซ้ำโดยใช้ Map
+    // ป้องกันข้อมูลซ้ำโดยใช้ Map แต่เก็บประวัติทั้งหมด
     const tenantMap = new Map();
     
     allRequestsResult.rows.forEach(tenant => {
-      const key = `${tenant.id}-${tenant.residence_dorm_id}`;
-      if (!tenantMap.has(key)) {
-        tenantMap.set(key, {
-          id: tenant.id || null,
-          username: tenant.username || '',
-          display_name: tenant.display_name || '',
-          email: tenant.email || '',
-          phone_number: tenant.phone_number || '',
-          profile_image_url: tenant.photo_url || null,
-          created_at: tenant.request_date || null,
-          residence_dorm_id: tenant.residence_dorm_id || null,
-          dorm_name: tenant.dorm_name || '',
-          status: tenant.request_status || 'ไม่ทราบสถานะ', // ใช้ status จาก member_requests
-          response_note: tenant.response_note || null, // เพิ่ม response_note
-          time_ago: getTimeAgo(tenant.request_date)
-        });
-      }
+      // ใช้ request_id เป็น key เพื่อเก็บประวัติทั้งหมด
+      const key = `${tenant.id}-${tenant.residence_dorm_id}-${tenant.request_date}`;
+      tenantMap.set(key, {
+        id: tenant.id || null,
+        username: tenant.username || '',
+        display_name: tenant.display_name || '',
+        email: tenant.email || '',
+        phone_number: tenant.phone_number || '',
+        profile_image_url: tenant.photo_url || null,
+        created_at: tenant.request_date || null,
+        residence_dorm_id: tenant.residence_dorm_id || null,
+        dorm_name: tenant.dorm_name || '',
+        status: tenant.request_status || 'ไม่ทราบสถานะ',
+        response_note: tenant.response_note || null,
+        time_ago: getTimeAgo(tenant.request_date)
+      });
     });
     
     const tenants = Array.from(tenantMap.values());

@@ -434,37 +434,38 @@ exports.editDormitory = async (req, res) => {
       );
     }
 
-    // 3. Update amenities
+    // 3. Update amenities - ลบเก่าทั้งหมดแล้วเพิ่มใหม่
     if (amenities && amenities.length > 0) {
-      // Set all existing amenities to unavailable first
+      // ลบสิ่งอำนวยความสะดวกเก่าทั้งหมดของหอนี้
       await client.query(
-        `UPDATE dormitory_amenities SET is_available = false WHERE dorm_id = $1`,
+        `DELETE FROM dormitory_amenities WHERE dorm_id = $1`,
         [dormId]
       );
 
+      // เพิ่มสิ่งอำนวยความสะดวกใหม่ทั้งหมด (เฉพาะที่ติ๊กมา)
       const amenityPromises = amenities.map((amenity) => {
         const amenityId = typeof amenity === 'object' ? amenity.amenity_id : amenity;
         const locationType = typeof amenity === 'object' ? amenity.location_type || 'indoor' : 'indoor';
+        const amenityName = typeof amenity === 'object' ? amenity.amenity_name : null;
         
         return client.query(
-          `INSERT INTO dormitory_amenities (dorm_id, amenity_id, location_type, is_available) VALUES ($1, $2, $3, $4)
-                     ON CONFLICT (dorm_id, amenity_id) DO UPDATE SET 
-                     location_type = excluded.location_type,
-                     is_available = excluded.is_available`,
-          [dormId, amenityId, locationType, true]
+          `INSERT INTO dormitory_amenities (dorm_id, amenity_id, location_type, amenity_name, is_available) 
+           VALUES ($1, $2, $3, $4, $5)`,
+          [dormId, amenityId, locationType, amenityName, true]
         );
       });
       await Promise.all(amenityPromises);
     }
 
-    // 4. Update room types
+    // 4. Update room types - ลบเก่าทั้งหมดแล้วเพิ่มใหม่
     if (roomTypes && roomTypes.length > 0) {
-      // Disable all existing room types first
+      // ลบประเภทห้องเก่าทั้งหมดของหอนี้
       await client.query(
-        `UPDATE room_types SET is_available = false WHERE dorm_id = $1`,
+        `DELETE FROM room_types WHERE dorm_id = $1`,
         [dormId]
       );
 
+      // เพิ่มประเภทห้องใหม่ทั้งหมด
       const roomTypePromises = roomTypes.map((roomType) => {
         // Handle price values - convert "ติดต่อสอบถาม" to null, keep numbers as is
         const monthlyPrice =
@@ -475,22 +476,14 @@ exports.editDormitory = async (req, res) => {
           roomType.dailyPrice === "ติดต่อสอบถาม" ? null : roomType.dailyPrice;
         const summerPrice =
           roomType.summerPrice === "ติดต่อสอบถาม" ? null : roomType.summerPrice;
+        const termPrice =
+          roomType.termPrice === "ติดต่อสอบถาม" ? null : roomType.termPrice;
 
         return client.query(
-          `
-                    INSERT INTO room_types (
-                        dorm_id, room_name, bed_type, size_sqm, monthly_price,
-                        daily_price, summer_price, max_occupancy
-                    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-                    ON CONFLICT (dorm_id, room_name) DO UPDATE SET
-                        bed_type = excluded.bed_type,
-                        size_sqm = excluded.size_sqm,
-                        monthly_price = excluded.monthly_price,
-                        daily_price = excluded.daily_price,
-                        summer_price = excluded.summer_price,
-                        max_occupancy = excluded.max_occupancy,
-                        is_available = true
-                `,
+          `INSERT INTO room_types (
+             dorm_id, room_name, bed_type, size_sqm, monthly_price,
+             daily_price, summer_price, term_price, max_occupancy
+           ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
           [
             dormId,
             roomType.roomName?.trim(),
@@ -499,11 +492,15 @@ exports.editDormitory = async (req, res) => {
             monthlyPrice,
             dailyPrice,
             summerPrice,
+            termPrice,
             roomType.maxOccupancy || null,
           ]
         );
       });
       await Promise.all(roomTypePromises);
+      
+      // อัปเดตช่วงราคาหลังจากแก้ไขประเภทห้อง
+      await exports.updateDormitoryPriceRange(dormId);
     }
 
     await client.query("COMMIT");
