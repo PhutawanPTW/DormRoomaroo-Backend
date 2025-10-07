@@ -270,18 +270,46 @@ exports.fetchCurrentUserProfile = async (req, res) => {
       });
     }
 
-    // ตรวจสอบว่าต้องกรอกข้อมูลเพิ่มเติมหรือไม่
+    // ตรวจสอบความครบถ้วนโปรไฟล์ แยกจากสถานะอนุมัติหอพัก
     let needsProfileSetup = false;
     if (user.member_type === 'member') {
-      needsProfileSetup = !user.phone_number || !user.residence_dorm_id;
+      // ผ่อนปรน: ต้องมีเฉพาะเบอร์โทรเท่านั้น ถือว่าจบโปรไฟล์
+      needsProfileSetup = !user.phone_number;
     } else if (user.member_type === 'owner') {
       needsProfileSetup = !user.manager_name;
+    }
+
+    // คำนวณสถานะรออนุมัติหอพักสำหรับ member
+    let pendingApproval = false;
+    let pendingDormId = null;
+    let pendingDormName = null;
+    if (user.member_type === 'member') {
+      try {
+        const pending = await pool.query(
+          `SELECT mr.dorm_id, d.dorm_name 
+           FROM member_requests mr
+           JOIN dormitories d ON mr.dorm_id = d.dorm_id
+           WHERE mr.user_id = $1 AND mr.status = 'รออนุมัติ' 
+           LIMIT 1`,
+          [user.id]
+        );
+        if (pending.rows.length > 0) {
+          pendingApproval = true;
+          pendingDormId = pending.rows[0].dorm_id;
+          pendingDormName = pending.rows[0].dorm_name;
+        }
+      } catch (e) {
+        console.error('Error checking pendingApproval:', e.message);
+      }
     }
 
     const userProfile = {
       ...mapUserRowToProfile(user),
       id: user.id,
       needsProfileSetup: needsProfileSetup,
+      pendingApproval,
+      pendingDormId,
+      pendingDormName,
       isNewUser: false // ผู้ใช้ที่มีข้อมูลในระบบแล้ว
     };
 
@@ -616,5 +644,70 @@ exports.verifyToken = async (req, res) => {
   } catch (error) {
     console.error('Error in token verification endpoint:', error);
     res.status(500).json({ message: 'เกิดข้อผิดพลาดภายในเซิร์ฟเวอร์', error: error.message });
+  }
+};
+
+// ตรวจสอบและจัดการคำขอลืมรหัสผ่าน ตามกติกาที่กำหนด
+exports.forgotPassword = async (req, res) => {
+  try {
+    const { email } = req.body || {};
+
+    // ตรวจรูปแบบอีเมลไม่ถูกต้อง
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!email || !emailRegex.test(String(email).toLowerCase())) {
+      return res.status(400).json({
+        code: 'invalid-email-format',
+        allowed: false,
+        message: 'รูปแบบอีเมลไม่ถูกต้อง กรุณาตรวจสอบอีกครั้ง'
+      });
+    }
+
+    // ตรวจผู้ใช้ด้วย Firebase Admin
+    let userRecord;
+    try {
+      userRecord = await firebaseAdmin.auth().getUserByEmail(email);
+    } catch (err) {
+      if (err && err.code === 'auth/user-not-found') {
+        return res.status(404).json({
+          code: 'email-not-found',
+          allowed: false,
+          message: 'ไม่พบอีเมลนี้ในระบบ'
+        });
+      }
+      // ข้อผิดพลาดอื่นๆ
+      console.error('Forgot password lookup error:', err);
+      return res.status(500).json({ message: 'เกิดข้อผิดพลาดภายในเซิร์ฟเวอร์' });
+    }
+
+    const providers = (userRecord.providerData || []).map(p => p.providerId);
+    const hasPassword = providers.includes('password');
+    const hasGoogleOnly = providers.length > 0 && providers.every(p => p === 'google.com');
+
+    if (hasPassword) {
+      // อนุญาตให้ส่งลิงก์รีเซ็ต (ให้ frontend ไปเรียก Firebase client SDK ส่งอีเมล)
+      return res.status(200).json({
+        code: 'reset-allowed',
+        allowed: true,
+        message: 'ส่งลิงก์รีเซ็ตรหัสผ่านไปยังอีเมลของคุณแล้ว กรุณาตรวจสอบอีเมล'
+      });
+    }
+
+    if (hasGoogleOnly) {
+      return res.status(200).json({
+        code: 'google-only',
+        allowed: false,
+        message: "บัญชีนี้เข้าสู่ระบบด้วย Google เท่านั้น โปรดใช้ปุ่ม ‘เข้าสู่ระบบด้วย Google’"
+      });
+    }
+
+    // ไม่รองรับกรณีอื่นๆ: ตีความว่าไม่มีสิทธิ์รีเซ็ตด้วยรหัสผ่าน
+    return res.status(404).json({
+      code: 'email-not-found',
+      allowed: false,
+      message: 'ไม่พบอีเมลนี้ในระบบ'
+    });
+  } catch (error) {
+    console.error('Forgot password error:', error);
+    res.status(500).json({ message: 'เกิดข้อผิดพลาดภายในเซิร์ฟเวอร์' });
   }
 };
