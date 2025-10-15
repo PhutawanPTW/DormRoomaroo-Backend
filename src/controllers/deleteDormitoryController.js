@@ -43,6 +43,8 @@ exports.deleteDormitory = async (req, res) => {
   try {
     const { dormId } = req.params;
     const firebase_uid = req.user.uid;
+    const confirmRaw = (req.query && req.query.confirm) ?? (req.body && req.body.confirm);
+    const confirm = (typeof confirmRaw === 'string') ? confirmRaw.toLowerCase() === 'true' : (confirmRaw === true);
 
     // ตรวจสอบสิทธิ์ผู้ใช้ (เฉพาะเจ้าของหอพักที่สามารถลบได้)
     const userResult = await client.query(
@@ -68,6 +70,55 @@ exports.deleteDormitory = async (req, res) => {
     }
 
     await client.query("BEGIN");
+
+    // Pre-check: ถ้ามีสมาชิกอาศัยอยู่ ให้ปฏิเสธด้วย 409
+    const residentCountResult = await client.query(
+      `SELECT COUNT(*)::int AS member_count FROM users WHERE residence_dorm_id = $1`,
+      [dormId]
+    );
+    const residentCount = residentCountResult.rows[0]?.member_count || 0;
+    if (residentCount > 0 && !confirm) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({
+        message: 'ยังมีสมาชิกอาศัยอยู่ในหอพักนี้ ต้องยืนยันก่อนลบ',
+        member_count: residentCount,
+        require_confirmation: true
+      });
+    }
+
+    // หากยืนยันแล้วและมีสมาชิก: เคลียร์ความสัมพันธ์ก่อนลบ
+    if (residentCount > 0 && confirm) {
+      // ดึงรายชื่อสมาชิกที่อาศัยอยู่
+      const residentsResult = await client.query(
+        `SELECT id FROM users WHERE residence_dorm_id = $1`,
+        [dormId]
+      );
+      const residentIds = residentsResult.rows.map(r => r.id);
+
+      if (residentIds.length > 0) {
+        // บันทึกประวัติใน member_requests ว่า "ย้ายออกโดยเจ้าของ"
+        await client.query(
+          `INSERT INTO member_requests (user_id, dorm_id, request_date, status)
+           SELECT id, $1, CURRENT_TIMESTAMP, 'ย้ายออกโดยเจ้าของ'
+           FROM users WHERE id = ANY($2::int[])`,
+          [dormId, residentIds]
+        );
+
+        // ปิด stay ปัจจุบันใน stay_history สำหรับหอนี้
+        await client.query(
+          `UPDATE stay_history
+           SET end_date = NOW(), is_current = false, status = 'owner_deleted_dorm'
+           WHERE dorm_id = $1 AND user_id = ANY($2::int[]) AND is_current = true`,
+          [dormId, residentIds]
+        );
+
+        // ถอดสมาชิกออกจากหอพัก
+        await client.query(
+          `UPDATE users SET residence_dorm_id = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = ANY($1::int[])`,
+          [residentIds]
+        );
+      }
+    }
 
     // 1. ลบข้อมูลประเภทห้อง (room types) ที่เกี่ยวข้องกับหอพักนี้
     await client.query(`DELETE FROM room_types WHERE dorm_id = $1`, [dormId]);

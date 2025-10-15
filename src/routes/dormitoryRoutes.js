@@ -27,6 +27,9 @@ router.get("/", dormitoryController.getAllApprovedDormitories); // ดึงร�
 router.get("/map/all", dormitoryController.getAllDormitoriesForMap); // ดึงหอพักทั้งหมดสำหรับแผนที่
 router.get("/map/popup/:dormId", dormitoryController.getDormitoryForMapPopup); // ดึงข้อมูลหอพักสำหรับป๊อปอัพ
 
+// ===== COMPARISON ROUTE =====
+router.get("/compare", dormitoryController.compareDormitories); // เปรียบเทียบหอพักหลายแห่ง (สูงสุด 5 หอพัก)
+
 router.get("/recommended", dormitoryController.getRecommendedDormitories);
 router.get("/latest", dormitoryController.getLatestDormitories);
 router.get("/amenities/all", dormitoryController.getAllAmenities); // ดึงรายการสิ่งอำนวยความสะดวกทั้งหมด
