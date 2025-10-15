@@ -130,7 +130,10 @@ exports.getOwnerDormitories = async (req, res) => {
           WHERE dorm_id = d.dorm_id
           ORDER BY is_primary DESC, upload_date DESC, image_id ASC
           LIMIT 1
-        ) AS main_image_url
+        ) AS main_image_url,
+        (
+          SELECT COUNT(*)::int FROM users u WHERE u.residence_dorm_id = d.dorm_id
+        ) AS member_count
       FROM dormitories d
       LEFT JOIN zones z ON d.zone_id = z.zone_id
       WHERE d.owner_id = $1
@@ -190,7 +193,7 @@ exports.getDormitoryById = async (req, res) => {
     }
 
     const dormitory = dormResult.rows[0];
-    
+
     // Debug: ตรวจสอบข้อมูล owner
     console.log(`[getDormitoryById] Dormitory ${dormId} owner data:`, {
       owner_id: dormitory.owner_id,
@@ -490,7 +493,7 @@ exports.getAllApprovedDormitories = async (req, res) => {
       WHERE d.approval_status = 'อนุมัติ'
       ORDER BY d.created_date DESC
     `;
-    
+
     const result = await pool.query(query);
     res.json(result.rows);
   } catch (error) {
@@ -558,10 +561,10 @@ exports.uploadDormitoryImages = async (req, res) => {
       const file = req.files[i];
       // อัปโหลดไป Firebase Storage ในโฟลเดอร์ Dorm_Gallery/{ชื่อหอพัก}
       const imageUrl = await storageService.uploadDormitoryImage(file, dormName);
-      
+
       // รูปแรกเป็น primary (ภาพหลักของหอพัก)
       const isPrimary = i === 0;
-      
+
       // บันทึกลงฐานข้อมูล
       const imageResult = await client.query(
         `INSERT INTO dormitory_images (dorm_id, image_url, is_primary, upload_date)
@@ -594,7 +597,7 @@ exports.uploadDormitoryImages = async (req, res) => {
 exports.getRoomTypesByDormId = async (req, res) => {
   try {
     const { dormId } = req.params;
-    
+
     const query = `
       SELECT 
         room_type_id,
@@ -608,7 +611,7 @@ exports.getRoomTypesByDormId = async (req, res) => {
       WHERE dorm_id = $1
       ORDER BY COALESCE(monthly_price, 2147483647), room_type_id
     `;
-    
+
     const result = await pool.query(query, [dormId]);
     res.json(result.rows);
   } catch (error) {
@@ -624,9 +627,9 @@ exports.createRoomType = async (req, res) => {
   try {
     const { dormId } = req.params;
 
-    const name        = (req.body.name ?? req.body.room_name ?? '').toString().trim();
+    const name = (req.body.name ?? req.body.room_name ?? '').toString().trim();
     // << สำคัญ: รองรับ bedType จากหน้าบ้าน >>
-    const bed_type    = req.body.bed_type ?? req.body.bedType ?? null;
+    const bed_type = req.body.bed_type ?? req.body.bedType ?? null;
     // removed price_type: no longer stored in DB
 
     const toNumberOrNull = (v) => {
@@ -641,9 +644,9 @@ exports.createRoomType = async (req, res) => {
     };
 
     const monthly_price = toNumberOrNull(req.body.monthly_price);
-    const daily_price   = toNumberOrNull(req.body.daily_price);
-    const summer_price  = toNumberOrNull(req.body.summer_price);
-    const term_price    = toNumberOrNull(req.body.term_price);
+    const daily_price = toNumberOrNull(req.body.daily_price);
+    const summer_price = toNumberOrNull(req.body.summer_price);
+    const term_price = toNumberOrNull(req.body.term_price);
 
     if (!name) {
       return res.status(400).json({ message: 'ต้องระบุชื่อประเภทห้อง' });
@@ -735,13 +738,13 @@ exports.createRoomTypesBulk = async (req, res) => {
         continue;
       }
 
-      const bed_type     = it.bed_type ?? it.bedType ?? null; // << รองรับ bedType >>
+      const bed_type = it.bed_type ?? it.bedType ?? null; // << รองรับ bedType >>
       // removed price_type
 
       const monthly_price = toNumberOrNull(it.monthly_price);
-      const daily_price   = toNumberOrNull(it.daily_price);
-      const summer_price  = toNumberOrNull(it.summer_price);
-      const term_price    = toNumberOrNull(it.term_price);
+      const daily_price = toNumberOrNull(it.daily_price);
+      const summer_price = toNumberOrNull(it.summer_price);
+      const term_price = toNumberOrNull(it.term_price);
 
       try {
         const r = await client.query(insertSql, [
@@ -795,7 +798,7 @@ exports.addDormitoryAmenities = async (req, res) => {
       const amenityId = amenity.amenity_id || amenity.id;
       const locationType = amenity.location_type || 'indoor';
       const amenityName = amenity.amenity_name || null;
-      
+
       return client.query(
         `INSERT INTO dormitory_amenities (dorm_id, amenity_id, location_type, amenity_name, is_available) 
          VALUES ($1, $2, $3, $4, $5)`,
@@ -831,12 +834,10 @@ exports.getDormitoryAmenities = async (req, res) => {
         da.amenity_id, 
         da.location_type,
         da.amenity_name,
-        da.is_available,
-        a.amenity_name as standard_amenity_name
+        da.is_available
       FROM dormitory_amenities da
-      LEFT JOIN amenities a ON da.amenity_id = a.amenity_id
       WHERE da.dorm_id = $1
-      ORDER BY da.location_type, COALESCE(da.amenity_name, a.amenity_name)
+      ORDER BY da.location_type, COALESCE(da.amenity_name, 'ไม่ระบุ')
     `;
 
     const result = await pool.query(query, [dormId]);
@@ -855,9 +856,8 @@ exports.getDormitoryAmenities = async (req, res) => {
           dorm_amenity_id: row.dorm_amenity_id,
           amenity_id: row.amenity_id,
           location_type: row.location_type,
-          amenity_name: row.amenity_name,
-          is_available: row.is_available,
-          standard_amenity_name: row.standard_amenity_name
+          amenity_name: row.amenity_name || 'ไม่ระบุ',
+          is_available: row.is_available
         });
       }
     });
@@ -1110,7 +1110,7 @@ exports.getDormitoryTenants = async (req, res) => {
 // Helper function สำหรับคำนวณเวลาที่ผ่านมา
 function getTimeAgo(date) {
   if (!date) return "ไม่ทราบวันที่";
-  
+
   try {
     const now = new Date();
     const created = new Date(date);
@@ -1149,7 +1149,7 @@ exports.approveTenant = async (req, res) => {
     }
 
     const ownerId = ownerCheck.rows[0].id;
-    
+
     // ตรวจสอบว่าเป็นเจ้าของหอพัก
     const dormCheck = await pool.query(
       "SELECT dorm_id FROM dormitories WHERE dorm_id = $1 AND owner_id = $2",
@@ -1246,7 +1246,7 @@ exports.rejectTenant = async (req, res) => {
     }
 
     const ownerId = ownerCheck.rows[0].id;
-    
+
     // ตรวจสอบว่าเป็นเจ้าของหอพัก
     const dormCheck = await pool.query(
       "SELECT dorm_id FROM dormitories WHERE dorm_id = $1 AND owner_id = $2",
@@ -1300,7 +1300,7 @@ exports.rejectTenant = async (req, res) => {
         if (lastCanceledResult.rows.length > 0 && lastApprovedResult.rows.length > 0) {
           const lastCanceledDate = lastCanceledResult.rows[0].request_date;
           const lastApprovedDate = lastApprovedResult.rows[0].approved_date;
-          
+
           // ถ้าคำขอที่ยกเลิกใหม่กว่าคำขอที่อนุมัติ = การย้ายหอ
           // ไม่ต้องกลับไปหอเก่า เพราะเขาเลือกย้ายออกไปแล้ว
           if (lastCanceledDate > lastApprovedDate) {
@@ -1309,7 +1309,7 @@ exports.rejectTenant = async (req, res) => {
             // คำขอที่อนุมัติใหม่กว่า = สมัครใหม่
             // กลับไปหอพักเก่าที่เคยอนุมัติแล้ว
             const lastApprovedDormId = lastApprovedResult.rows[0].dorm_id;
-            
+
             await client.query(
               "UPDATE users SET residence_dorm_id = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2",
               [lastApprovedDormId, userId]
@@ -1325,7 +1325,7 @@ exports.rejectTenant = async (req, res) => {
           // ไม่มีคำขอที่ยกเลิก = สมัครใหม่
           // กลับไปหอพักเก่าที่เคยอนุมัติแล้ว
           const lastApprovedDormId = lastApprovedResult.rows[0].dorm_id;
-          
+
           await client.query(
             "UPDATE users SET residence_dorm_id = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2",
             [lastApprovedDormId, userId]
@@ -1374,7 +1374,7 @@ exports.cancelTenantApproval = async (req, res) => {
     }
 
     const ownerId = ownerCheck.rows[0].id;
-    
+
     // ตรวจสอบว่าเป็นเจ้าของหอพัก
     const dormCheck = await pool.query(
       "SELECT dorm_id FROM dormitories WHERE dorm_id = $1 AND owner_id = $2",
@@ -1464,7 +1464,7 @@ exports.getAllOwnerTenants = async (req, res) => {
 
     const dormIds = dorms.map(d => d.dorm_id);
 
-        // ดึงรายการคำขอทั้งหมดจาก member_requests (ทั้งรออนุมัติ, อนุมัติ, ปฏิเสธ)
+    // ดึงรายการคำขอทั้งหมดจาก member_requests (ทั้งรออนุมัติ, อนุมัติ, ปฏิเสธ)
     const allRequestsQuery = `
       SELECT 
         u.id,
@@ -1489,7 +1489,7 @@ exports.getAllOwnerTenants = async (req, res) => {
 
     // ป้องกันข้อมูลซ้ำโดยใช้ Map แต่เก็บประวัติทั้งหมด
     const tenantMap = new Map();
-    
+
     allRequestsResult.rows.forEach(tenant => {
       // ใช้ request_id เป็น key เพื่อเก็บประวัติทั้งหมด
       const key = `${tenant.id}-${tenant.residence_dorm_id}-${tenant.request_date}`;
@@ -1508,7 +1508,7 @@ exports.getAllOwnerTenants = async (req, res) => {
         time_ago: getTimeAgo(tenant.request_date)
       });
     });
-    
+
     const tenants = Array.from(tenantMap.values());
 
     res.json({
@@ -1592,7 +1592,7 @@ exports.deleteDormitoryImage = async (req, res) => {
 
     await client.query("COMMIT");
 
-    res.json({ 
+    res.json({
       message: "ลบรูปภาพสำเร็จ",
       deleted_image_id: imageId
     });
@@ -1678,13 +1678,13 @@ exports.setPrimaryImage = async (req, res) => {
 // ดึงข้อมูลหอพักทั้งหมดสำหรับแผนที่
 exports.getAllDormitoriesForMap = async (req, res) => {
   try {
-    const { 
-      zone_id, 
-      min_price, 
-      max_price, 
+    const {
+      zone_id,
+      min_price,
+      max_price,
       rating_min,
       limit = 100,
-      offset = 0 
+      offset = 0
     } = req.query;
 
     // สร้าง WHERE clause ตาม filter ที่ส่งมา
@@ -1781,7 +1781,7 @@ exports.getAllDormitoriesForMap = async (req, res) => {
       LEFT JOIN zones z ON d.zone_id = z.zone_id
       ${whereClause}
     `;
-    
+
     const countResult = await pool.query(countQuery, queryParams.slice(0, -2));
     const total = parseInt(countResult.rows[0].total);
 
@@ -1905,3 +1905,355 @@ exports.getDormitoryForMapPopup = async (req, res) => {
 
 
 
+
+
+// ===== COMPARISON ENDPOINT =====
+
+// เปรียบเทียบหอพักหลายแห่งพร้อมกัน
+exports.compareDormitories = async (req, res) => {
+  try {
+    const { ids } = req.query;
+
+    if (!ids) {
+      return res.status(400).json({ message: 'ต้องระบุ dormitory IDs (ตัวอย่าง: ?ids=1,2,3)' });
+    }
+
+    const dormIds = ids.split(',').map(id => parseInt(id.trim())).filter(id => !isNaN(id));
+
+    if (dormIds.length === 0) {
+      return res.status(400).json({ message: 'ไม่พบ dormitory ID ที่ถูกต้อง' });
+    }
+
+    if (dormIds.length > 5) {
+      return res.status(400).json({ message: 'สามารถเปรียบเทียบได้สูงสุด 5 หอพักเท่านั้น' });
+    }
+
+    // ดึงข้อมูลหลักของหอพัก
+    const query = `
+      SELECT 
+        d.dorm_id,
+        d.dorm_name,
+        d.address,
+        d.dorm_description,
+        d.min_price,
+        d.max_price,
+        d.latitude,
+        d.longitude,
+        d.electricity_type,
+        d.electricity_rate,
+        d.water_type,
+        d.water_rate,
+        z.zone_name,
+        z.zone_id,
+        -- รูปภาพหลัก
+        (
+          SELECT image_url 
+          FROM dormitory_images 
+          WHERE dorm_id = d.dorm_id 
+          ORDER BY is_primary DESC, upload_date DESC 
+          LIMIT 1
+        ) AS main_image_url,
+        -- คะแนนรีวิว
+        COALESCE(ROUND(AVG(r.rating)::numeric, 1), 0) AS avg_rating,
+        COUNT(DISTINCT r.review_id) AS review_count,
+        -- จำนวนผู้พัก
+        (SELECT COUNT(*) FROM users WHERE residence_dorm_id = d.dorm_id) AS resident_count
+      FROM dormitories d
+      LEFT JOIN zones z ON d.zone_id = z.zone_id
+      LEFT JOIN reviews r ON r.dorm_id = d.dorm_id
+      WHERE d.dorm_id = ANY($1) AND d.approval_status = 'อนุมัติ'
+      GROUP BY d.dorm_id, z.zone_name, z.zone_id
+      ORDER BY array_position($1, d.dorm_id)
+    `;
+
+    const result = await pool.query(query, [dormIds]);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ message: 'ไม่พบหอพักที่ระบุ หรือหอพักยังไม่ได้รับการอนุมัติ' });
+    }
+
+    // ดึงข้อมูล room types
+    const roomTypesQuery = `
+      SELECT 
+        dorm_id,
+        room_type_id,
+        room_name,
+        bed_type,
+        monthly_price,
+        daily_price,
+        summer_price,
+        term_price
+      FROM room_types
+      WHERE dorm_id = ANY($1)
+      ORDER BY dorm_id, COALESCE(monthly_price, 999999)
+    `;
+    const roomTypesResult = await pool.query(roomTypesQuery, [dormIds]);
+
+    // ดึงข้อมูล amenities
+    const amenitiesQuery = `
+      SELECT 
+        da.dorm_id,
+        da.amenity_id,
+        da.amenity_name,
+        da.location_type
+      FROM dormitory_amenities da
+      WHERE da.dorm_id = ANY($1) AND da.is_available = true
+      ORDER BY da.dorm_id, da.location_type
+    `;
+    const amenitiesResult = await pool.query(amenitiesQuery, [dormIds]);
+
+    // จัดกลุ่มข้อมูล
+    const dormitories = result.rows.map(dorm => {
+      const roomTypes = roomTypesResult.rows.filter(rt => rt.dorm_id === dorm.dorm_id);
+      const amenities = amenitiesResult.rows
+        .filter(a => a.dorm_id === dorm.dorm_id)
+        .map(a => ({
+          id: a.amenity_id,
+          name: a.amenity_name || 'ไม่ระบุ',
+          location: a.location_type
+        }));
+
+      return {
+        id: dorm.dorm_id,
+        name: dorm.dorm_name,
+        address: dorm.address,
+        description: dorm.dorm_description,
+        zone: {
+          id: dorm.zone_id,
+          name: dorm.zone_name
+        },
+        price_range: {
+          min: dorm.min_price || 0,
+          max: dorm.max_price || 0
+        },
+        utilities: {
+          electricity: {
+            type: dorm.electricity_type || 'คิดตามหน่วย',
+            rate: dorm.electricity_rate || 0
+          },
+          water: {
+            type: dorm.water_type || 'คิดตามหน่วย',
+            rate: dorm.water_rate || 0
+          }
+        },
+        location: {
+          lat: parseFloat(dorm.latitude) || 0,
+          lng: parseFloat(dorm.longitude) || 0
+        },
+        image_url: dorm.main_image_url,
+        rating: {
+          average: parseFloat(dorm.avg_rating) || 0,
+          count: parseInt(dorm.review_count) || 0
+        },
+        resident_count: parseInt(dorm.resident_count) || 0,
+        room_types: roomTypes,
+        amenities: amenities
+      };
+    });
+
+    res.json({
+      success: true,
+      count: dormitories.length,
+      dormitories,
+      comparison_date: new Date().toISOString()
+    });
+
+  } catch (error) {
+    console.error('Error comparing dormitories:', error);
+    res.status(500).json({
+      success: false,
+      message: 'เกิดข้อผิดพลาดในการเปรียบเทียบหอพัก',
+      error: error.message
+    });
+  }
+};
+
+
+// เปรียบเทียบหอพักหลายแห่ง (สูงสุด 5 หอพัก)
+exports.compareDormitories = async (req, res) => {
+  try {
+    const { ids } = req.query;
+
+    // ตรวจสอบว่ามี query parameter ids หรือไม่
+    if (!ids) {
+      return res.status(400).json({ 
+        message: "ต้องระบุ dormitory IDs (ตัวอย่าง: ?ids=1,2,3)" 
+      });
+    }
+
+    // แปลง string เป็น array ของ integers
+    const dormIds = ids.split(',')
+      .map(id => parseInt(id.trim(), 10))
+      .filter(id => !isNaN(id) && id > 0);
+
+    // ตรวจสอบว่ามี ID ที่ถูกต้องหรือไม่
+    if (dormIds.length === 0) {
+      return res.status(400).json({ 
+        message: "ไม่พบ dormitory ID ที่ถูกต้อง" 
+      });
+    }
+
+    // จำกัดไม่เกิน 5 หอพัก
+    if (dormIds.length > 5) {
+      return res.status(400).json({ 
+        message: "สามารถเปรียบเทียบได้สูงสุด 5 หอพักเท่านั้น" 
+      });
+    }
+
+    // ดึงข้อมูลหอพักพื้นฐาน
+    const dormQuery = `
+      SELECT 
+        d.dorm_id as id,
+        d.dorm_name as name,
+        d.address,
+        d.dorm_description as description,
+        d.latitude as lat,
+        d.longitude as lng,
+        d.min_price,
+        d.max_price,
+        d.electricity_rate,
+        d.electricity_type,
+        d.water_rate,
+        d.water_type,
+        z.zone_id,
+        z.zone_name,
+        (
+          SELECT image_url FROM dormitory_images 
+          WHERE dorm_id = d.dorm_id 
+          ORDER BY is_primary DESC, upload_date DESC, image_id ASC 
+          LIMIT 1
+        ) AS image_url,
+        (
+          SELECT COUNT(*)::int FROM users u WHERE u.residence_dorm_id = d.dorm_id
+        ) AS resident_count
+      FROM dormitories d
+      LEFT JOIN zones z ON d.zone_id = z.zone_id
+      WHERE d.dorm_id = ANY($1::int[]) AND d.approval_status = 'อนุมัติ'
+    `;
+
+    const dormResult = await pool.query(dormQuery, [dormIds]);
+
+    if (dormResult.rows.length === 0) {
+      return res.status(404).json({ 
+        message: "ไม่พบหอพักที่ระบุ หรือหอพักยังไม่ได้รับการอนุมัติ" 
+      });
+    }
+
+    // ดึงข้อมูลคะแนนรีวิว
+    const ratingQuery = `
+      SELECT 
+        dorm_id,
+        COUNT(*) as review_count,
+        ROUND(AVG(rating)::numeric, 1) as average_rating
+      FROM reviews
+      WHERE dorm_id = ANY($1::int[])
+      GROUP BY dorm_id
+    `;
+    const ratingResult = await pool.query(ratingQuery, [dormIds]);
+    const ratingMap = {};
+    ratingResult.rows.forEach(row => {
+      ratingMap[row.dorm_id] = {
+        average: parseFloat(row.average_rating) || 0,
+        count: parseInt(row.review_count, 10) || 0
+      };
+    });
+
+    // ดึงข้อมูลประเภทห้อง
+    const roomTypesQuery = `
+      SELECT 
+        room_type_id,
+        dorm_id,
+        room_name,
+        bed_type,
+        monthly_price,
+        daily_price,
+        summer_price,
+        term_price
+      FROM room_types
+      WHERE dorm_id = ANY($1::int[])
+      ORDER BY dorm_id, COALESCE(monthly_price, 2147483647), room_type_id
+    `;
+    const roomTypesResult = await pool.query(roomTypesQuery, [dormIds]);
+    const roomTypesMap = {};
+    roomTypesResult.rows.forEach(row => {
+      if (!roomTypesMap[row.dorm_id]) {
+        roomTypesMap[row.dorm_id] = [];
+      }
+      roomTypesMap[row.dorm_id].push(row);
+    });
+
+    // ดึงข้อมูลสิ่งอำนวยความสะดวก (ใช้เฉพาะ dormitory_amenities)
+    const amenitiesQuery = `
+      SELECT 
+        da.dorm_id,
+        da.amenity_id as id,
+        COALESCE(da.amenity_name, 'ไม่ระบุ') as name,
+        da.location_type as location
+      FROM dormitory_amenities da
+      WHERE da.dorm_id = ANY($1::int[]) AND da.is_available = true
+      ORDER BY da.dorm_id, da.location_type, COALESCE(da.amenity_name, 'ไม่ระบุ')
+    `;
+    const amenitiesResult = await pool.query(amenitiesQuery, [dormIds]);
+    const amenitiesMap = {};
+    amenitiesResult.rows.forEach(row => {
+      if (!amenitiesMap[row.dorm_id]) {
+        amenitiesMap[row.dorm_id] = [];
+      }
+      amenitiesMap[row.dorm_id].push({
+        id: row.id,
+        name: row.name,
+        location: row.location
+      });
+    });
+
+    // รวมข้อมูลทั้งหมด
+    const dormitories = dormResult.rows.map(dorm => ({
+      id: dorm.id,
+      name: dorm.name,
+      address: dorm.address,
+      description: dorm.description,
+      zone: {
+        id: dorm.zone_id,
+        name: dorm.zone_name
+      },
+      price_range: {
+        min: dorm.min_price || 0,
+        max: dorm.max_price || 0
+      },
+      utilities: {
+        electricity: {
+          type: dorm.electricity_type || 'ไม่ระบุ',
+          rate: dorm.electricity_rate || 0
+        },
+        water: {
+          type: dorm.water_type || 'ไม่ระบุ',
+          rate: dorm.water_rate || 0
+        }
+      },
+      location: {
+        lat: dorm.lat,
+        lng: dorm.lng
+      },
+      image_url: dorm.image_url,
+      rating: ratingMap[dorm.id] || { average: 0, count: 0 },
+      resident_count: dorm.resident_count || 0,
+      room_types: roomTypesMap[dorm.id] || [],
+      amenities: amenitiesMap[dorm.id] || []
+    }));
+
+    res.json({
+      success: true,
+      count: dormitories.length,
+      dormitories,
+      comparison_date: new Date().toISOString()
+    });
+
+  } catch (error) {
+    console.error("Error comparing dormitories:", error);
+    res.status(500).json({ 
+      success: false,
+      message: "เกิดข้อผิดพลาดในการเปรียบเทียบหอพัก", 
+      error: error.message 
+    });
+  }
+};

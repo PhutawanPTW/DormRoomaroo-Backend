@@ -22,7 +22,7 @@ router.delete('/:dormId/images/:imageId', verifyFirebaseToken, dormitoryControll
 router.put('/:dormId/images/:imageId/primary', verifyFirebaseToken, dormitoryController.setPrimaryImage);
 
 // ===== ROOM TYPES =====
-router.get('/:dormId/room-types', verifyFirebaseToken, dormitoryController.getRoomTypesByDormId);
+router.get('/:dormId/room-types', dormitoryController.getRoomTypesByDormId); // Public access for viewing room types
 router.post('/:dormId/room-types', verifyFirebaseToken, dormitoryController.createRoomType);
 // router.post('/:dormId/room-types/bulk', verifyFirebaseToken, dormitoryController.createRoomTypesBulk);
 router.put('/room-types/:roomTypeId', verifyFirebaseToken, editDormitoryController.updateRoomType);
