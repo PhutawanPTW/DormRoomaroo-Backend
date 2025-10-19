@@ -1,6 +1,6 @@
 const axios = require('axios');
 
-const ML_API_URL = process.env.ML_API_URL || 'http://localhost:8000';
+const ML_API_URL = process.env.ML_API_URL || 'https://roomaroo-textclassification.onrender.com';
 
 async function predictReviewRating(text) {
   const payload = { text };

@@ -149,7 +149,7 @@ exports.addDormitory = async (req, res) => {
       
       for (const amenity of amenities) {
         const amenityId = amenity.amenity_id || amenity.id;
-        const locationType = amenity.location_type || 'indoor';
+        const locationType = amenity.location_type;
         const amenityName = amenity.amenity_name || null;
         
         await client.query(
@@ -370,6 +370,8 @@ exports.getMyDormitories = async (req, res) => {
 
     const dormsWithMembers = dorms.map((dorm) => ({
       ...dorm,
+      latitude: dorm.latitude ? Number(dorm.latitude) : null,
+      longitude: dorm.longitude ? Number(dorm.longitude) : null,
       member_count: (membersByDorm[dorm.dorm_id] || []).length,
       pending_request_count: pendingRequestsByDorm[dorm.dorm_id] || 0,
       total_related_users:

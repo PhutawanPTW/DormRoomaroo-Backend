@@ -4,6 +4,91 @@ const bcrypt = require("bcrypt");
 const storageService = require("../services/storageService");
 const stayController = require("./stayController");
 
+// ฟังก์ชันคำนวณสถิติการอยู่หอ
+function calculateStayStatistics(stayRecords) {
+  if (!stayRecords || stayRecords.length === 0) {
+    return {
+      longest_stay: null,
+      shortest_stay: null,
+      most_frequent_dorm: null,
+      average_stay_duration: 0,
+      total_days_stayed: 0
+    };
+  }
+
+  // คำนวณระยะเวลาการอยู่แต่ละครั้ง
+  const staysWithDuration = stayRecords.map(stay => {
+    let durationDays = 0;
+    if (stay.end_date) {
+      const startDate = new Date(stay.start_date);
+      const endDate = new Date(stay.end_date);
+      durationDays = Math.ceil((endDate - startDate) / (1000 * 60 * 60 * 24));
+    } else {
+      // กำลังอยู่ - คำนวณจากวันที่เริ่มถึงปัจจุบัน
+      const startDate = new Date(stay.start_date);
+      const currentDate = new Date();
+      durationDays = Math.ceil((currentDate - startDate) / (1000 * 60 * 60 * 24));
+    }
+    
+    return {
+      ...stay,
+      duration_days: durationDays
+    };
+  });
+
+  // หาการอยู่ที่ยาวที่สุด
+  const longestStay = staysWithDuration.reduce((max, current) => 
+    current.duration_days > max.duration_days ? current : max
+  );
+
+  // หาการอยู่ที่สั้นที่สุด (ไม่นับการอยู่ปัจจุบัน)
+  const completedStays = staysWithDuration.filter(stay => stay.end_date);
+  const shortestStay = completedStays.length > 0 ? 
+    completedStays.reduce((min, current) => 
+      current.duration_days < min.duration_days ? current : min
+    ) : null;
+
+  // หาหอพักที่ไปบ่อยที่สุด
+  const dormFrequency = {};
+  stayRecords.forEach(stay => {
+    dormFrequency[stay.dorm_id] = (dormFrequency[stay.dorm_id] || 0) + 1;
+  });
+  
+  const mostFrequentDorm = Object.keys(dormFrequency).length > 0 ?
+    Object.entries(dormFrequency).reduce((max, current) => 
+      current[1] > max[1] ? current : max
+    ) : null;
+
+  // คำนวณสถิติ
+  const totalDaysStayed = staysWithDuration.reduce((sum, stay) => sum + stay.duration_days, 0);
+  const averageStayDuration = completedStays.length > 0 ? 
+    Math.round(totalDaysStayed / completedStays.length) : 0;
+
+  return {
+    longest_stay: longestStay ? {
+      dorm_id: longestStay.dorm_id,
+      dorm_name: longestStay.dorm_name,
+      duration_days: longestStay.duration_days,
+      start_date: longestStay.start_date,
+      end_date: longestStay.end_date
+    } : null,
+    shortest_stay: shortestStay ? {
+      dorm_id: shortestStay.dorm_id,
+      dorm_name: shortestStay.dorm_name,
+      duration_days: shortestStay.duration_days,
+      start_date: shortestStay.start_date,
+      end_date: shortestStay.end_date
+    } : null,
+    most_frequent_dorm: mostFrequentDorm ? {
+      dorm_id: parseInt(mostFrequentDorm[0]),
+      dorm_name: stayRecords.find(stay => stay.dorm_id == mostFrequentDorm[0])?.dorm_name,
+      visit_count: mostFrequentDorm[1]
+    } : null,
+    average_stay_duration: averageStayDuration,
+    total_days_stayed: totalDaysStayed
+  };
+}
+
 // ดึงข้อมูลโปรไฟล์ผู้ใช้
 exports.getUserProfile = async (req, res) => {
   try {
@@ -65,6 +150,33 @@ exports.getUserProfile = async (req, res) => {
       availableDorms = dormsResult.rows;
     }
 
+    // ดึงประวัติการอยู่หอทั้งหมด
+    const stayHistoryQuery = `
+      SELECT 
+        s.stay_id,
+        s.start_date,
+        s.end_date,
+        s.is_current,
+        s.status,
+        d.dorm_id,
+        d.dorm_name,
+        d.address,
+        z.zone_name,
+        CASE 
+          WHEN s.end_date IS NULL THEN 'กำลังอยู่'
+          ELSE EXTRACT(DAYS FROM s.end_date - s.start_date)::text || ' วัน'
+        END as duration_days
+      FROM stay_history s
+      JOIN dormitories d ON s.dorm_id = d.dorm_id
+      LEFT JOIN zones z ON d.zone_id = z.zone_id
+      WHERE s.user_id = $1
+      ORDER BY s.start_date DESC
+    `;
+    const stayHistoryResult = await pool.query(stayHistoryQuery, [user.id]);
+
+    // คำนวณสถิติการอยู่หอ
+    const statistics = calculateStayStatistics(stayHistoryResult.rows);
+
     res.json({
       user: {
         id: user.id,
@@ -82,7 +194,14 @@ exports.getUserProfile = async (req, res) => {
         updated_at: user.updated_at
       },
       current_dorm: currentDorm,
-      available_dorms: availableDorms
+      available_dorms: availableDorms,
+      stay_history: {
+        total_stays: stayHistoryResult.rows.length,
+        total_dormitories: [...new Set(stayHistoryResult.rows.map(stay => stay.dorm_id))].length,
+        current_stay: stayHistoryResult.rows.find(stay => stay.is_current) || null,
+        stay_records: stayHistoryResult.rows,
+        statistics: statistics
+      }
     });
 
   } catch (error) {

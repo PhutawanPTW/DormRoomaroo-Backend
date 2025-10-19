@@ -107,7 +107,7 @@ exports.deleteDormitory = async (req, res) => {
         // ปิด stay ปัจจุบันใน stay_history สำหรับหอนี้
         await client.query(
           `UPDATE stay_history
-           SET end_date = NOW(), is_current = false, status = 'owner_deleted_dorm'
+           SET end_date = NOW(), is_current = false, status = 'หอพักถูกลบ'
            WHERE dorm_id = $1 AND user_id = ANY($2::int[]) AND is_current = true`,
           [dormId, residentIds]
         );
