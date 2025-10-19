@@ -12,6 +12,7 @@ const { verifyFirebaseToken } = require('../middleware/authMiddleware');
 const { uploadDormitoryImages } = require('../middleware/uploadMiddleware');
 
 // ===== BASIC DORM EDIT =====
+router.get('/:dormId', verifyFirebaseToken, editDormitoryController.getDormitoryDetails);
 router.put('/:dormId', verifyFirebaseToken, editDormitoryController.updateDormitory);
 router.patch('/:dormId', verifyFirebaseToken, editDormitoryController.updateDormitory);
 

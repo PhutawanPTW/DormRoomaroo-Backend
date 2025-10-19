@@ -22,6 +22,16 @@ router.get("/zones", dormitoryController.getAllZones);
 router.get("/user/:userId", dormitoryController.getDormitoriesByUserId); // ดึงรายการหอพักทั้งหมดของ userId (จะ deprecated)
 router.get("/owner", verifyFirebaseToken, dormitoryController.getOwnerDormitories); // ดึงรายการหอของเจ้าของจาก token
 router.get("/", dormitoryController.getAllApprovedDormitories); // ดึงรายการหอพักทั้งหมดที่อนุมัติแล้ว (public)
+// ค้นหาชื่อหอพัก (autocomplete)
+router.get("/search", dormitoryController.searchDormNames);
+// กรองจากประเภทการเช่า (รายวัน/รายเดือน)
+router.get("/filter/rent-type", dormitoryController.filterByRentType);
+// กรองตามคะแนนดาว
+router.get("/filter/rating", dormitoryController.filterByRating);
+// กรองตามช่วงราคา
+router.get("/filter/price", dormitoryController.filterByPriceRange);
+// กรองตามสิ่งอำนวยความสะดวก
+router.get("/filter/amenities", dormitoryController.filterByAmenities);
 
 // ===== MAP ROUTES =====
 router.get("/map/all", dormitoryController.getAllDormitoriesForMap); // ดึงหอพักทั้งหมดสำหรับแผนที่

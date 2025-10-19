@@ -27,7 +27,12 @@ exports.getDormitoryReviews = async (req, res) => {
         u.id as user_id,
         u.display_name,
         u.photo_url,
-        u.username
+        u.username,
+        u.residence_dorm_id,
+        CASE 
+          WHEN u.residence_dorm_id = $1 THEN true
+          ELSE false
+        END as is_resident
       FROM reviews r
       JOIN users u ON r.user_id = u.id
       WHERE r.dorm_id = $1

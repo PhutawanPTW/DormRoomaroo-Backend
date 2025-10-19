@@ -1,6 +1,39 @@
 // src/controllers/editDormitoryController.js
 const pool = require("../db");
 
+// Master data สำหรับ amenity names
+const AMENITY_NAMES = {
+  1: "แอร์",
+  2: "พัดลม", 
+  3: "TV",
+  4: "ตู้เย็น",
+  5: "เตียงนอน",
+  6: "WIFI",
+  7: "ตู้เสื้อผ้า",
+  8: "โต๊ะทำงาน",
+  9: "ไมโครเวฟ",
+  10: "เครื่องทำน้ำอุ่น",
+  11: "ซิงค์ล้างจาน",
+  12: "โต๊ะเครื่องแป้ง",
+  13: "กล้องวงจรปิด",
+  14: "รปภ.",
+  15: "ลิฟต์",
+  16: "ที่จอดรถ",
+  17: "ฟิตเนส",
+  18: "Lobby",
+  19: "ตู้น้ำหยอดเหรียญ",
+  20: "สระว่ายน้ำ",
+  21: "ที่วางพัสดุ",
+  22: "อนุญาตให้เลี้ยงสัตว์",
+  23: "คีย์การ์ด",
+  24: "เครื่องซักผ้า"
+};
+
+// ฟังก์ชันดึงชื่อ amenity จาก ID
+const getAmenityNameById = (amenityId) => {
+  return AMENITY_NAMES[amenityId] || 'ไม่ระบุ';
+};
+
 // อัพเดตข้อมูลหอพักพื้นฐาน (owner) - รองรับ partial update โดย merge ค่าปัจจุบันกับค่าที่ส่งมา
 exports.updateDormitory = async (req, res) => {
   const client = await pool.connect();
@@ -137,22 +170,21 @@ exports.updateDormitoryAmenities = async (req, res) => {
 
     await client.query('BEGIN');
 
+    // ลบสิ่งอำนวยความสะดวกเดิมทั้งหมด
+    await client.query('DELETE FROM dormitory_amenities WHERE dorm_id = $1', [dormId]);
+
+    // เพิ่มสิ่งอำนวยความสะดวกใหม่
     for (const item of amenities) {
       const amenityId = item.amenity_id || item.id;
       if (!amenityId) continue;
 
       const isAvailable = item.is_available === undefined ? true : !!item.is_available;
-      const locationType = item.location_type || 'indoor';
-      const amenityName = item.amenity_name || null;
+      const locationType = item.location_type || 'ภายใน';
+      const amenityName = getAmenityNameById(amenityId);
 
       await client.query(
         `INSERT INTO dormitory_amenities (dorm_id, amenity_id, location_type, amenity_name, is_available)
-         VALUES ($1, $2, $3, $4, $5)
-         ON CONFLICT (dorm_id, amenity_id)
-         DO UPDATE SET
-           location_type = EXCLUDED.location_type,
-           amenity_name = EXCLUDED.amenity_name,
-           is_available = EXCLUDED.is_available`,
+         VALUES ($1, $2, $3, $4, $5)`,
         [dormId, amenityId, locationType, amenityName, isAvailable]
       );
     }
@@ -199,16 +231,16 @@ exports.getDormitoryDetails = async (req, res) => {
                 d.dorm_description,
                 d.latitude,
                 d.longitude,
-                d.bed_type,
-                d.rental_type,
                 d.electricity_type,
                 d.electricity_rate,
                 d.water_type,
                 d.water_rate,
-                d.monthly_price,
-                d.daily_price,
                 d.approval_status,
                 d.created_date,
+                d.min_price,
+                d.max_price,
+                d.status_dorm,
+                d.zone_id,
                 z.zone_name,
                 (SELECT image_url FROM dormitory_images WHERE dorm_id = d.dorm_id AND is_primary = true LIMIT 1) as main_image_url
             FROM dormitories d
@@ -231,12 +263,10 @@ exports.getDormitoryDetails = async (req, res) => {
                 rt.room_type_id,
                 rt.room_name,
                 rt.bed_type,
-                rt.size_sqm,
                 rt.monthly_price,
                 rt.daily_price,
                 rt.summer_price,
-                rt.term_price,
-                rt.max_occupancy
+                rt.term_price
             FROM room_types rt
             WHERE rt.dorm_id = $1
             `,
@@ -250,39 +280,21 @@ exports.getDormitoryDetails = async (req, res) => {
                 da.dorm_amenity_id,
                 da.amenity_id, 
                 da.location_type,
-                da.custom_amenity_name,
-                da.is_available,
-                a.amenity_name
+                da.amenity_name,
+                da.is_available
             FROM dormitory_amenities da
-            LEFT JOIN amenities a ON da.amenity_id = a.amenity_id
             WHERE da.dorm_id = $1
-            ORDER BY da.location_type, a.amenity_name
+            ORDER BY da.location_type, da.amenity_name
             `,
       [dormId]
     );
 
-    // 4. ดึงข้อมูลช่องทางติดต่อ (contact information)
-    let contactInfo = null;
-    if (dormitory.contact_id) {
-      const contactResult = await client.query(
-        `
-                SELECT manager_name, primary_phone, secondary_phone, line_id, email
-                FROM contact_info
-                WHERE contact_id = $1
-                `,
-        [dormitory.contact_id]
-      );
-
-      if (contactResult.rows.length > 0) {
-        contactInfo = contactResult.rows[0];
-      }
-    }
-
     res.json({
       ...dormitory,
+      latitude: dormitory.latitude ? Number(dormitory.latitude) : null,
+      longitude: dormitory.longitude ? Number(dormitory.longitude) : null,
       roomTypes: roomTypesResult.rows,
       amenities: amenitiesResult.rows,
-      contactInfo,
     });
   } catch (error) {
     console.error("Error fetching dormitory details:", error);
@@ -322,16 +334,16 @@ exports.editDormitory = async (req, res) => {
                 d.dorm_description,
                 d.latitude,
                 d.longitude,
-                d.bed_type,
-                d.rental_type,
                 d.electricity_type,
                 d.electricity_rate,
                 d.water_type,
                 d.water_rate,
-                d.monthly_price,
-                d.daily_price,
                 d.approval_status,
                 d.created_date,
+                d.min_price,
+                d.max_price,
+                d.status_dorm,
+                d.zone_id,
                 z.zone_name,
                 (SELECT image_url FROM dormitory_images WHERE dorm_id = d.dorm_id AND is_primary = true LIMIT 1) as main_image_url
             FROM dormitories d
@@ -380,16 +392,12 @@ exports.editDormitory = async (req, res) => {
                 dorm_description = $4,
                 latitude = $5,
                 longitude = $6,
-                bed_type = $7,
-                rental_type = $8,
-                electricity_type = $9,
-                electricity_rate = $10,
-                water_type = $11,
-                water_rate = $12,
-                monthly_price = $13,
-                daily_price = $14,
+                electricity_type = $7,
+                electricity_rate = $8,
+                water_type = $9,
+                water_rate = $10,
                 updated_date = NOW()
-            WHERE dorm_id = $15
+            WHERE dorm_id = $11
         `;
 
     await client.query(dormQuery, [
@@ -399,14 +407,10 @@ exports.editDormitory = async (req, res) => {
       description.trim(),
       parseFloat(latitude),
       parseFloat(longitude),
-      bedType,
-      rentalType,
       electricityType,
       electricityRate || null,
       waterType,
       waterRate || null,
-      monthlyPrice || null,
-      dailyPrice || null,
       dormId,
     ]);
 
@@ -445,7 +449,7 @@ exports.editDormitory = async (req, res) => {
       // เพิ่มสิ่งอำนวยความสะดวกใหม่ทั้งหมด (เฉพาะที่ติ๊กมา)
       const amenityPromises = amenities.map((amenity) => {
         const amenityId = typeof amenity === 'object' ? amenity.amenity_id : amenity;
-        const locationType = typeof amenity === 'object' ? amenity.location_type || 'indoor' : 'indoor';
+        const locationType = typeof amenity === 'object' ? amenity.location_type || 'ภายใน' : 'ภายใน';
         const amenityName = typeof amenity === 'object' ? amenity.amenity_name : null;
         
         return client.query(
