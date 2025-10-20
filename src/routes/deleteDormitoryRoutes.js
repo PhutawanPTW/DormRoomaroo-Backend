@@ -4,7 +4,7 @@ const deleteDormitoryController = require('../controllers/deleteDormitoryControl
 const { verifyFirebaseToken } = require('../middleware/authMiddleware');
 
 // ตรวจสอบสมาชิกของหอพักก่อนลบ
-// router.get('/:dormId/check-members', verifyFirebaseToken, deleteDormitoryController.checkDormitoryMembers);
+router.get('/:dormId/check-members', verifyFirebaseToken, deleteDormitoryController.checkDormitoryMembers);
 
 // ลบหอพัก
 router.delete('/:dormId', verifyFirebaseToken, deleteDormitoryController.deleteDormitory);

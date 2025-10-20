@@ -29,6 +29,9 @@ router.put('/:dormId', verifyFirebaseToken, requireAdmin, adminDormitoryControll
 // จัดการสถานะหอพัก (เปิด/ปิด)
 router.put('/:dormId/status', verifyFirebaseToken, requireAdmin, adminDormitoryController.updateDormitoryStatus);
 
+// ตรวจสอบสมาชิกของหอพักก่อนลบ
+router.get('/:dormId/check-members', verifyFirebaseToken, requireAdmin, adminDormitoryController.checkDormitoryMembers);
+
 // ลบหอพัก
 router.delete('/:dormId', verifyFirebaseToken, requireAdmin, adminDormitoryController.deleteDormitory);
 
