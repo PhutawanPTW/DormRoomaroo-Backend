@@ -24,14 +24,8 @@ router.get("/owner", verifyFirebaseToken, dormitoryController.getOwnerDormitorie
 router.get("/", dormitoryController.getAllApprovedDormitories); // ดึงรายการหอพักทั้งหมดที่อนุมัติแล้ว (public)
 // ค้นหาชื่อหอพัก (autocomplete)
 router.get("/search", dormitoryController.searchDormNames);
-// กรองจากประเภทการเช่า (รายวัน/รายเดือน)
-router.get("/filter/rent-type", dormitoryController.filterByRentType);
-// กรองตามคะแนนดาว
-router.get("/filter/rating", dormitoryController.filterByRating);
-// กรองตามช่วงราคา
-router.get("/filter/price", dormitoryController.filterByPriceRange);
-// กรองตามสิ่งอำนวยความสะดวก
-router.get("/filter/amenities", dormitoryController.filterByAmenities);
+// กรองหอพัก (รองรับทั้งเดี่ยวและรวมกัน)
+router.get("/filter", dormitoryController.advancedFilter);
 
 // ===== MAP ROUTES =====
 router.get("/map/all", dormitoryController.getAllDormitoriesForMap); // ดึงหอพักทั้งหมดสำหรับแผนที่
