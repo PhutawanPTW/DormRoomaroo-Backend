@@ -12,7 +12,6 @@ const deleteDormitoryController = require("../controllers/deleteDormitoryControl
 // ===== Middleware =====
 const {
   verifyFirebaseToken,
-  verifyAdminToken,
 } = require("../middleware/authMiddleware");
 
 // ===== ZONE ROUTES =====
@@ -36,6 +35,7 @@ router.get("/compare", dormitoryController.compareDormitories); // เปรี�
 
 router.get("/recommended", dormitoryController.getRecommendedDormitories);
 router.get("/latest", dormitoryController.getLatestDormitories);
+router.get("/rating-filter", dormitoryController.filterByRating); // กรองตามคะแนนดาวแบบ Shopee
 router.get("/amenities/all", dormitoryController.getAllAmenities); // ดึงรายการสิ่งอำนวยความสะดวกทั้งหมด
 router.get("/room-types/options", dormitoryController.getRoomTypeOptions); // ดึงตัวเลือกประเภทห้อง
 router.get("/:dormId", dormitoryController.getDormitoryById); // ดึงข้อมูลหอพักตาม ID

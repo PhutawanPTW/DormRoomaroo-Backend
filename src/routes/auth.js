@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const authController = require('../controllers/authController');
-const { verifyFirebaseToken, verifyAdminToken } = require('../middleware/authMiddleware');
+const { verifyFirebaseToken } = require('../middleware/authMiddleware');
 const { uploadProfileImage } = require('../middleware/uploadMiddleware');
 
 // Route สำหรับ Google Sign-In (ส่ง ID Token มาให้ Backend Verify)
@@ -33,9 +33,6 @@ router.get('/users', authController.getAllUsers);
 
 // Route สำหรับการเข้าสู่ระบบแอดมิน (Firebase)
 router.post('/admin-login', verifyFirebaseToken, authController.adminLogin);
-
-// Route สำหรับเปลี่ยนรหัสผ่านแอดมิน
-router.post('/admin/change-password', verifyAdminToken, authController.changeAdminPassword);
 
 // Forgot password flow (no token required)
 router.post('/forgot-password', authController.forgotPassword);

@@ -1,37 +1,18 @@
 // src/controllers/editDormitoryController.js
 const pool = require("../db");
 
-// Master data สำหรับ amenity names
-const AMENITY_NAMES = {
-  1: "แอร์",
-  2: "พัดลม", 
-  3: "TV",
-  4: "ตู้เย็น",
-  5: "เตียงนอน",
-  6: "WIFI",
-  7: "ตู้เสื้อผ้า",
-  8: "โต๊ะทำงาน",
-  9: "ไมโครเวฟ",
-  10: "เครื่องทำน้ำอุ่น",
-  11: "ซิงค์ล้างจาน",
-  12: "โต๊ะเครื่องแป้ง",
-  13: "กล้องวงจรปิด",
-  14: "รปภ.",
-  15: "ลิฟต์",
-  16: "ที่จอดรถ",
-  17: "ฟิตเนส",
-  18: "Lobby",
-  19: "ตู้น้ำหยอดเหรียญ",
-  20: "สระว่ายน้ำ",
-  21: "ที่วางพัสดุ",
-  22: "อนุญาตให้เลี้ยงสัตว์",
-  23: "คีย์การ์ด",
-  24: "เครื่องซักผ้า"
-};
-
-// ฟังก์ชันดึงชื่อ amenity จาก ID
-const getAmenityNameById = (amenityId) => {
-  return AMENITY_NAMES[amenityId] || 'ไม่ระบุ';
+// ฟังก์ชันดึงชื่อ amenity จาก ID (จากฐานข้อมูล)
+const getAmenityNameById = async (amenityId) => {
+  try {
+    const result = await pool.query(
+      'SELECT amenity_name FROM amenities WHERE amenity_id = $1',
+      [amenityId]
+    );
+    return result.rows[0]?.amenity_name || 'ไม่ระบุ';
+  } catch (error) {
+    console.error('Error fetching amenity name:', error);
+    return 'ไม่ระบุ';
+  }
 };
 
 // อัพเดตข้อมูลหอพักพื้นฐาน (owner) - รองรับ partial update โดย merge ค่าปัจจุบันกับค่าที่ส่งมา
@@ -61,7 +42,7 @@ exports.updateDormitory = async (req, res) => {
     // ดึงค่าปัจจุบันของหอพักเพื่อทำการ merge
     const currentDormResult = await client.query(
       `SELECT dorm_name, zone_id, address, dorm_description, latitude, longitude,
-              electricity_type, electricity_rate, water_type, water_rate
+              electricity_type, electricity_rate, water_type, water_rate, status_dorm
        FROM dormitories WHERE dorm_id = $1`,
       [dormId]
     );
@@ -82,6 +63,7 @@ exports.updateDormitory = async (req, res) => {
       electricityRate,
       waterType,
       waterRate,
+      statusDorm,
     } = req.body;
 
     // สร้างค่า merged โดยใช้ค่าที่ส่งมา ถ้าไม่ส่งมาก็ใช้ค่าปัจจุบัน
@@ -96,6 +78,7 @@ exports.updateDormitory = async (req, res) => {
       electricity_rate: electricityRate !== undefined ? electricityRate : current.electricity_rate,
       water_type: waterType !== undefined ? waterType : current.water_type,
       water_rate: waterRate !== undefined ? waterRate : current.water_rate,
+      status_dorm: statusDorm !== undefined ? statusDorm : current.status_dorm,
     };
 
     // ตรวจสอบความถูกต้องหลัง merge เฉพาะฟิลด์จำเป็น
@@ -122,8 +105,9 @@ exports.updateDormitory = async (req, res) => {
           electricity_rate = $8,
           water_type = $9,
           water_rate = $10,
+          status_dorm = $11,
           updated_date = NOW()
-      WHERE dorm_id = $11
+      WHERE dorm_id = $12
     `;
     await client.query(updateQuery, [
       merged.dorm_name,
@@ -136,6 +120,7 @@ exports.updateDormitory = async (req, res) => {
       merged.electricity_rate || null,
       merged.water_type || null,
       merged.water_rate || null,
+      merged.status_dorm || 'ว่าง',
       dormId,
     ]);
     await client.query("COMMIT");

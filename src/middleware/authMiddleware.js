@@ -1,10 +1,6 @@
 // src/middleware/authMiddleware.js
 const firebaseAdmin = require('../config/firebase').default; // Use the default app
 const pool = require('../db');
-const jwt = require('jsonwebtoken');
-
-// JWT Secret Key สำหรับแอดมิน (ควรเก็บใน .env file)
-const ADMIN_JWT_SECRET = 'DormRoomaroo-Admin-Secret-Key-2024';
 
 async function verifyFirebaseToken(req, res, next) {
   const authHeader = req.headers.authorization;
@@ -77,35 +73,4 @@ async function requireAdmin(req, res, next) {
   }
 }
 
-// ตรวจสอบ JWT token ของแอดมิน
-function verifyAdminToken(req, res, next) {
-  const authHeader = req.headers.authorization;
-  
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    return res.status(401).json({ error: 'Unauthorized: No token provided or malformed.' });
-  }
-
-  const token = authHeader.split(' ')[1]; // ดึง Token ออกมา
-  
-  try {
-    const decoded = jwt.verify(token, ADMIN_JWT_SECRET);
-    req.admin = decoded; // เก็บข้อมูลแอดมินไว้ใน req.admin
-    next();
-  } catch (error) {
-    console.error('Error verifying admin token:', error);
-    if (error.name === 'TokenExpiredError') {
-      return res.status(401).json({ 
-        error: 'Unauthorized: Token expired', 
-        code: 'token-expired',
-        message: 'Your session has expired. Please login again.'
-      });
-    }
-    return res.status(401).json({ 
-      error: 'Unauthorized: Invalid admin token.', 
-      code: 'token-invalid',
-      details: error.message 
-    });
-  }
-}
-
-module.exports = { verifyFirebaseToken, requireAdmin, verifyAdminToken, ADMIN_JWT_SECRET };
+module.exports = { verifyFirebaseToken, requireAdmin };

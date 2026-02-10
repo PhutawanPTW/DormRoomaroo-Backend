@@ -122,9 +122,10 @@ exports.addDormitory = async (req, res) => {
         latitude,
         longitude,
         approval_status,
+        status_dorm,
         owner_id,
         created_date
-      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,NOW())
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,NOW())
       RETURNING dorm_id
     `;
     const dormResult = await client.query(dormQuery, [
@@ -139,6 +140,7 @@ exports.addDormitory = async (req, res) => {
       latitude,
       longitude,
       "รออนุมัติ",
+      "ว่าง", // สถานะหอพักเริ่มต้น
       user.id,
     ]);
     const dormId = dormResult.rows[0].dorm_id;

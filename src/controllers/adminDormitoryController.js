@@ -679,12 +679,15 @@ exports.deleteDormitory = async (req, res) => {
       dormId,
     ]);
 
-    // 6. ลบข้อมูลรูปภาพหอพัก
+    // 6. ลบข้อมูลรีวิวที่เกี่ยวข้องกับหอพักนี้
+    await client.query(`DELETE FROM reviews WHERE dorm_id = $1`, [dormId]);
+
+    // 7. ลบข้อมูลรูปภาพหอพัก
     await client.query(`DELETE FROM dormitory_images WHERE dorm_id = $1`, [
       dormId,
     ]);
 
-    // 7. ลบข้อมูลหอพัก
+    // 8. ลบข้อมูลหอพัก
     await client.query(`DELETE FROM dormitories WHERE dorm_id = $1`, [dormId]);
 
     await client.query("COMMIT");

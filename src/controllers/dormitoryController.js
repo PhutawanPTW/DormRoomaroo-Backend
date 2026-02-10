@@ -3,37 +3,18 @@ const pool = require("../db");
 const { updateDormitoryPriceRange } = require('./editDormitoryController');
 const storageService = require("../services/storageService");
 
-// Master data สำหรับ amenity names
-const AMENITY_NAMES = {
-  1: "แอร์",
-  2: "พัดลม", 
-  3: "TV",
-  4: "ตู้เย็น",
-  5: "เตียงนอน",
-  6: "WIFI",
-  7: "ตู้เสื้อผ้า",
-  8: "โต๊ะทำงาน",
-  9: "ไมโครเวฟ",
-  10: "เครื่องทำน้ำอุ่น",
-  11: "ซิงค์ล้างจาน",
-  12: "โต๊ะเครื่องแป้ง",
-  13: "กล้องวงจรปิด",
-  14: "รปภ.",
-  15: "ลิฟต์",
-  16: "ที่จอดรถ",
-  17: "ฟิตเนส",
-  18: "Lobby",
-  19: "ตู้น้ำหยอดเหรียญ",
-  20: "สระว่ายน้ำ",
-  21: "ที่วางพัสดุ",
-  22: "อนุญาตให้เลี้ยงสัตว์",
-  23: "คีย์การ์ด",
-  24: "เครื่องซักผ้า"
-};
-
-// ฟังก์ชันดึงชื่อ amenity จาก ID
-const getAmenityNameById = (amenityId) => {
-  return AMENITY_NAMES[amenityId] || 'ไม่ระบุ';
+// ฟังก์ชันดึงชื่อ amenity จาก ID (จากฐานข้อมูล)
+const getAmenityNameById = async (amenityId) => {
+  try {
+    const result = await pool.query(
+      'SELECT amenity_name FROM amenities WHERE amenity_id = $1',
+      [amenityId]
+    );
+    return result.rows[0]?.amenity_name || 'ไม่ระบุ';
+  } catch (error) {
+    console.error('Error fetching amenity name:', error);
+    return 'ไม่ระบุ';
+  }
 };
 
 // Helper SQL fragment for selectingภาพหลักของหอพัก
@@ -511,7 +492,7 @@ exports.selectCurrentDormitory = async (req, res) => {
   }
 };
 
-// ดึงหอพักแนะนำ (สุ่ม 8 แถว)
+// ดึงหอพักแนะนำ (เรียงตามคะแนนรีวิวและราคา)
 exports.getRecommendedDormitories = async (req, res) => {
   try {
     const { limit } = req.query; // optional
@@ -527,11 +508,38 @@ exports.getRecommendedDormitories = async (req, res) => {
         COALESCE(
           (SELECT COUNT(*) FROM reviews WHERE dorm_id = d.dorm_id), 
           0
-        ) AS review_count
+        ) AS review_count,
+        -- คำนวณ recommendation score
+        (
+          COALESCE((SELECT AVG(rating) FROM reviews WHERE dorm_id = d.dorm_id), 0) * 0.5 +
+          COALESCE((SELECT COUNT(*) FROM reviews WHERE dorm_id = d.dorm_id), 0) * 0.1 +
+          CASE 
+            WHEN d.min_price IS NOT NULL AND d.min_price > 0 
+            THEN GREATEST(0, (10000 - d.min_price) / 1000) * 0.2
+            ELSE 0 
+          END +
+          -- เพิ่มคะแนนจากจำนวนผู้พัก (ความนิยม)
+          COALESCE((SELECT COUNT(*) FROM users WHERE residence_dorm_id = d.dorm_id), 0) * 0.1 +
+          -- เพิ่มคะแนนจากจำนวนสิ่งอำนวยความสะดวก
+          COALESCE((SELECT COUNT(*) FROM dormitory_amenities WHERE dorm_id = d.dorm_id AND is_available = true), 0) * 0.05 +
+          -- เพิ่มคะแนนจากจำนวนรูปภาพ (ความสมบูรณ์ของข้อมูล)
+          COALESCE((SELECT COUNT(*) FROM dormitory_images WHERE dorm_id = d.dorm_id), 0) * 0.05
+        ) AS recommendation_score,
+        -- ข้อมูลเพิ่มเติมสำหรับ tie-breaking
+        (SELECT COUNT(*) FROM users WHERE residence_dorm_id = d.dorm_id) AS current_residents,
+        (SELECT COUNT(*) FROM dormitory_amenities WHERE dorm_id = d.dorm_id AND is_available = true) AS amenities_count,
+        (SELECT COUNT(*) FROM dormitory_images WHERE dorm_id = d.dorm_id) AS images_count
       FROM dormitories d
       LEFT JOIN zones z ON d.zone_id = z.zone_id
       WHERE d.approval_status = 'อนุมัติ'
-      ORDER BY RANDOM()`;
+      ORDER BY 
+        recommendation_score DESC,
+        avg_rating DESC,
+        review_count DESC,
+        current_residents DESC,
+        amenities_count DESC,
+        images_count DESC,
+        d.created_date DESC`;
     const values = [];
     if (limit) {
       values.push(parseInt(limit, 10));
@@ -580,6 +588,118 @@ exports.getLatestDormitories = async (req, res) => {
     res
       .status(500)
       .json({ message: "Internal Server Error", error: error.message });
+  }
+};
+
+// กรองหอพักตามคะแนนดาวแบบ Shopee (X ดาวขึ้นไป)
+exports.filterByRating = async (req, res) => {
+  try {
+    const { 
+      minRating = 1, 
+      zoneIds, 
+      minPrice, 
+      maxPrice, 
+      limit = 20, 
+      offset = 0 
+    } = req.query;
+
+    // ตรวจสอบ minRating ต้องเป็น 1-5
+    const rating = Math.max(1, Math.min(5, parseInt(minRating, 10)));
+    
+    let whereConditions = ["d.approval_status = 'อนุมัติ'"];
+    let params = [];
+    let paramIndex = 1;
+
+    // กรองตามโซน
+    if (zoneIds) {
+      const zoneList = zoneIds.split(',').map(id => parseInt(id.trim(), 10)).filter(n => Number.isFinite(n));
+      if (zoneList.length > 0) {
+        const placeholders = zoneList.map(() => `$${paramIndex++}`).join(',');
+        whereConditions.push(`d.zone_id IN (${placeholders})`);
+        params = params.concat(zoneList);
+      }
+    }
+
+    // กรองตามช่วงราคา
+    if (minPrice !== undefined) {
+      whereConditions.push(`COALESCE(d.max_price, 2147483647) >= $${paramIndex++}`);
+      params.push(parseInt(minPrice, 10));
+    }
+    if (maxPrice !== undefined) {
+      whereConditions.push(`COALESCE(d.min_price, 0) <= $${paramIndex++}`);
+      params.push(parseInt(maxPrice, 10));
+    }
+
+    const whereClause = whereConditions.length > 0 ? `WHERE ${whereConditions.join(' AND ')}` : '';
+
+    // Query หลัก
+    const query = `
+      SELECT 
+        d.dorm_id,
+        d.dorm_name,
+        d.address,
+        d.min_price,
+        d.max_price,
+        z.zone_name,
+        ${MAIN_IMAGE_SUBQUERY},
+        COALESCE(AVG(r.rating), 0) AS avg_rating,
+        COUNT(DISTINCT r.review_id) AS review_count,
+        (SELECT COUNT(*) FROM users WHERE residence_dorm_id = d.dorm_id) AS current_residents
+      FROM dormitories d
+      LEFT JOIN zones z ON d.zone_id = z.zone_id
+      LEFT JOIN reviews r ON d.dorm_id = r.dorm_id
+      ${whereClause}
+      GROUP BY d.dorm_id, z.zone_name
+      HAVING AVG(r.rating) >= $${paramIndex++}
+      ORDER BY 
+        avg_rating DESC,
+        review_count DESC,
+        current_residents DESC,
+        d.created_date DESC
+      LIMIT $${paramIndex++} OFFSET $${paramIndex++}
+    `;
+
+    params.push(rating, parseInt(limit, 10), parseInt(offset, 10));
+
+    const result = await pool.query(query, params);
+
+    // นับจำนวนทั้งหมด (สำหรับ pagination)
+    const countQuery = `
+      SELECT COUNT(*) as total
+      FROM (
+        SELECT d.dorm_id
+        FROM dormitories d
+        LEFT JOIN reviews r ON d.dorm_id = r.dorm_id
+        ${whereClause}
+        GROUP BY d.dorm_id
+        HAVING AVG(r.rating) >= $${paramIndex}
+      ) filtered_dorms
+    `;
+    
+    const countParams = params.slice(0, -2); // ลบ limit และ offset
+    const countResult = await pool.query(countQuery, countParams);
+    const total = parseInt(countResult.rows[0].total, 10);
+
+    res.json({
+      dormitories: result.rows,
+      pagination: {
+        total,
+        limit: parseInt(limit, 10),
+        offset: parseInt(offset, 10),
+        has_more: (parseInt(offset, 10) + parseInt(limit, 10)) < total
+      },
+      filter: {
+        min_rating: rating,
+        description: `${rating} ดาวขึ้นไป`
+      }
+    });
+
+  } catch (error) {
+    console.error("Error filtering dormitories by rating:", error);
+    res.status(500).json({ 
+      message: "เกิดข้อผิดพลาดในการกรองหอพักตามคะแนน", 
+      error: error.message 
+    });
   }
 };
 
@@ -703,20 +823,15 @@ exports.advancedFilter = async (req, res) => {
     // สร้าง HAVING clause สำหรับคะแนนดาวและสิ่งอำนวยความสะดวก
     let havingConditions = [];
 
-    // กรองตามคะแนนดาว (ใช้ช่วงคะแนน)
+    // กรองตามคะแนนดาว (รองรับแบบ Shopee: "X ดาวขึ้นไป")
     if (stars) {
       const starList = stars.split(',').map(s => parseInt(s.trim(), 10)).filter(n => Number.isFinite(n) && n >= 1 && n <= 5);
       if (starList.length > 0) {
-        // สร้างเงื่อนไขช่วงคะแนน
+        // สร้างเงื่อนไข "X ดาวขึ้นไป" (minimum rating)
         let starConditions = [];
         starList.forEach(star => {
-          if (star === 5) {
-            // 5 ดาว: 5.0 เท่านั้น
-            starConditions.push(`AVG(r.rating) = 5.0`);
-          } else {
-            // 1-4 ดาว: ใช้ช่วงคะแนน
-            starConditions.push(`AVG(r.rating) >= ${star}.0 AND AVG(r.rating) < ${star + 1}.0`);
-          }
+          // เงื่อนไข: คะแนนเฉลี่ย >= X ดาว
+          starConditions.push(`AVG(r.rating) >= ${star}.0`);
         });
         havingConditions.push(`(${starConditions.join(' OR ')})`);
       }
@@ -1081,6 +1196,7 @@ exports.addDormitoryAmenities = async (req, res) => {
   try {
     const { dormId } = req.params;
     const { amenities } = req.body;
+    const firebase_uid = req.user?.uid;
 
     if (!Array.isArray(amenities) || amenities.length === 0) {
       return res.status(400).json({ message: 'ต้องระบุสิ่งอำนวยความสะดวกอย่างน้อย 1 รายการ' });
@@ -1088,25 +1204,66 @@ exports.addDormitoryAmenities = async (req, res) => {
 
     await client.query('BEGIN');
 
+    // ดึง user_id จาก firebase_uid
+    let userId = null;
+    if (firebase_uid) {
+      const userResult = await client.query(
+        'SELECT id FROM users WHERE firebase_uid = $1',
+        [firebase_uid]
+      );
+      userId = userResult.rows[0]?.id;
+    }
+
     // ลบสิ่งอำนวยความสะดวกเดิมทั้งหมด
     await client.query('DELETE FROM dormitory_amenities WHERE dorm_id = $1', [dormId]);
 
     // เพิ่มสิ่งอำนวยความสะดวกใหม่
-    const insertPromises = amenities.map(amenity => {
-      const amenityId = amenity.amenity_id || amenity.id;
+    for (const amenity of amenities) {
+      let amenityId = amenity.amenity_id || amenity.id;
       const locationType = amenity.location_type || 'ภายใน';
-      
-      // ดึงชื่อ amenity จาก master data
-      const amenityName = getAmenityNameById(amenityId);
+      const customName = amenity.custom_name?.trim();
 
-      return client.query(
-        `INSERT INTO dormitory_amenities (dorm_id, amenity_id, location_type, amenity_name, is_available) 
-         VALUES ($1, $2, $3, $4, $5)`,
-        [dormId, amenityId, locationType, amenityName, true]
+      // ถ้ามี custom_name = สร้าง amenity ใหม่หรือใช้ของเดิม
+      if (customName) {
+        // 1. เช็คว่ามี amenity นี้อยู่แล้วหรือยัง (case-insensitive)
+        const existing = await client.query(
+          `SELECT amenity_id FROM amenities 
+           WHERE LOWER(amenity_name) = LOWER($1)`,
+          [customName]
+        );
+
+        if (existing.rows.length > 0) {
+          // ใช้ ID เดิม
+          amenityId = existing.rows[0].amenity_id;
+        } else {
+          // สร้างใหม่
+          const newAmenity = await client.query(
+            `INSERT INTO amenities 
+             (amenity_name, amenity_type, created_by, category)
+             VALUES ($1, 'custom', $2, 'อื่นๆ')
+             RETURNING amenity_id`,
+            [customName, userId]
+          );
+          amenityId = newAmenity.rows[0].amenity_id;
+        }
+      }
+
+      // ดึงชื่อจากฐานข้อมูล
+      const amenityNameResult = await client.query(
+        'SELECT amenity_name FROM amenities WHERE amenity_id = $1',
+        [amenityId]
       );
-    });
+      const amenityName = amenityNameResult.rows[0]?.amenity_name || 'ไม่ระบุ';
 
-    await Promise.all(insertPromises);
+      // 2. เพิ่มเข้า dormitory_amenities
+      await client.query(
+        `INSERT INTO dormitory_amenities 
+         (dorm_id, amenity_id, location_type, amenity_name, is_available) 
+         VALUES ($1, $2, $3, $4, true)`,
+        [dormId, amenityId, locationType, amenityName]
+      );
+    }
+
     await client.query('COMMIT');
 
     res.status(201).json({
@@ -1227,43 +1384,52 @@ exports.getRoomTypeOptions = async (req, res) => {
   }
 };
 
-// ดึงรายการสิ่งอำนวยความสะดวกทั้งหมด
+// ดึงรายการสิ่งอำนวยความสะดวกทั้งหมด (จากฐานข้อมูล)
 exports.getAllAmenities = async (req, res) => {
   try {
-    // ส่งรายการสิ่งอำนวยความสะดวกมาตรฐานแทน
-    const amenities = [
-      { amenity_id: 1, name: "แอร์" },
-      { amenity_id: 2, name: "TV" },
-      { amenity_id: 3, name: "เตียงนอน" },
-      { amenity_id: 4, name: "ตู้เสื้อผ้า" },
-      { amenity_id: 5, name: "ไมโครเวฟ" },
-      { amenity_id: 6, name: "ซิงค์ล้างจาน" },
-      { amenity_id: 7, name: "พัดลม" },
-      { amenity_id: 8, name: "ตู้เย็น" },
-      { amenity_id: 9, name: "WIFI" },
-      { amenity_id: 10, name: "โต๊ะทำงาน" },
-      { amenity_id: 11, name: "เครื่องทำน้ำอุ่น" },
-      { amenity_id: 12, name: "โต๊ะเครื่องแป้ง" },
-      { amenity_id: 13, name: "กล้องวงจรปิด" },
-      { amenity_id: 14, name: "ลิฟต์" },
-      { amenity_id: 15, name: "ฟิตเนส" },
-      { amenity_id: 16, name: "ตู้น้ำหยอดเหรียญ" },
-      { amenity_id: 17, name: "ที่วางพัสดุ" },
-      { amenity_id: 18, name: "คีย์การ์ด" },
-      { amenity_id: 19, name: "รปภ." },
-      { amenity_id: 20, name: "ที่จอดรถ" },
-      { amenity_id: 21, name: "Lobby" },
-      { amenity_id: 22, name: "สระว่ายน้ำ" },
-      { amenity_id: 23, name: "อนุญาตให้เลี้ยงสัตว์" },
-      { amenity_id: 24, name: "เครื่องซักผ้า" }
-    ];
+    const { type } = req.query; // 'standard', 'custom', หรือ 'all' (default)
 
-    res.json(amenities);
+    let query = `
+      SELECT 
+        amenity_id,
+        amenity_name as name,
+        amenity_type,
+        category,
+        is_active
+      FROM amenities
+      WHERE is_active = true
+    `;
+
+    const params = [];
+
+    // Filter ตามประเภท
+    if (type === 'standard') {
+      query += ` AND amenity_type = 'standard'`;
+    } else if (type === 'custom') {
+      query += ` AND amenity_type = 'custom'`;
+    }
+
+    query += ` ORDER BY 
+      CASE amenity_type 
+        WHEN 'standard' THEN 1 
+        WHEN 'custom' THEN 2 
+      END,
+      amenity_id ASC
+    `;
+
+    const result = await pool.query(query, params);
+
+    res.json({
+      total: result.rows.length,
+      amenities: result.rows
+    });
+
   } catch (error) {
     console.error("Error fetching amenities:", error);
-    res
-      .status(500)
-      .json({ message: "Internal Server Error", error: error.message });
+    res.status(500).json({ 
+      message: "เกิดข้อผิดพลาดในการดึงข้อมูลสิ่งอำนวยความสะดวก", 
+      error: error.message 
+    });
   }
 };
 

@@ -3,9 +3,6 @@ const userService = require('../services/userService');
 const storageService = require('../services/storageService');
 const { generateUsernameFromEmail } = userService;
 const pool = require('../db');
-const jwt = require('jsonwebtoken');
-const bcrypt = require('bcrypt');
-const { ADMIN_JWT_SECRET } = require('../middleware/authMiddleware');
 
 function mapUserRowToProfile(row) {
   if (!row) return null;
@@ -517,110 +514,7 @@ exports.adminLogin = async (req, res) => {
   }
 };
 
-// เข้าสู่ระบบสำหรับแอดมิน (ไม่ผ่าน Firebase)
-exports.adminDirectLogin = async (req, res) => {
-  try {
-    const { username, password } = req.body;
 
-    if (!username || !password) {
-      return res.status(400).json({ message: 'กรุณาระบุชื่อผู้ใช้และรหัสผ่าน' });
-    }
-
-    // ตรวจสอบว่ามีผู้ใช้นี้ในตาราง admins หรือไม่
-    const query = 'SELECT * FROM admins WHERE username = $1';
-    const result = await pool.query(query, [username]);
-
-    if (result.rows.length === 0) {
-      return res.status(401).json({ message: 'ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง' });
-    }
-
-    const admin = result.rows[0];
-
-    // ตรวจสอบรหัสผ่าน
-    const passwordMatch = await bcrypt.compare(password, admin.password_hash);
-
-    if (!passwordMatch) {
-      return res.status(401).json({ message: 'ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง' });
-    }
-
-    // สร้าง JWT token
-    const token = jwt.sign(
-      {
-        admin_id: admin.admin_id,
-        username: admin.username
-      },
-      ADMIN_JWT_SECRET,
-      { expiresIn: '24h' }
-    );
-
-    // อัพเดต last_login
-    await pool.query(
-      'UPDATE admins SET last_login = CURRENT_TIMESTAMP WHERE admin_id = $1',
-      [admin.admin_id]
-    );
-
-    // ส่งข้อมูลแอดมินและ token กลับไป (ไม่รวมรหัสผ่าน)
-    const adminProfile = {
-      admin_id: admin.admin_id,
-      username: admin.username,
-      display_name: admin.display_name,
-      photo_url: admin.photo_url
-    };
-
-    res.status(200).json({
-      message: 'เข้าสู่ระบบสำเร็จ',
-      admin: adminProfile,
-      token: token
-    });
-  } catch (error) {
-    console.error('Admin login error:', error);
-    res.status(500).json({ message: 'เกิดข้อผิดพลาดในการเข้าสู่ระบบแอดมิน', error: error.message });
-  }
-};
-
-// เปลี่ยนรหัสผ่านสำหรับแอดมิน
-exports.changeAdminPassword = async (req, res) => {
-  try {
-    const { currentPassword, newPassword } = req.body;
-    const { admin_id } = req.admin; // จาก token ที่ verify แล้ว
-
-    if (!currentPassword || !newPassword) {
-      return res.status(400).json({ message: 'กรุณาระบุรหัสผ่านปัจจุบันและรหัสผ่านใหม่' });
-    }
-
-    // ตรวจสอบว่ามีผู้ใช้นี้ในตาราง admins หรือไม่
-    const query = 'SELECT * FROM admins WHERE admin_id = $1';
-    const result = await pool.query(query, [admin_id]);
-
-    if (result.rows.length === 0) {
-      return res.status(404).json({ message: 'ไม่พบข้อมูลแอดมิน' });
-    }
-
-    const admin = result.rows[0];
-
-    // ตรวจสอบรหัสผ่านปัจจุบัน
-    const passwordMatch = await bcrypt.compare(currentPassword, admin.password_hash);
-
-    if (!passwordMatch) {
-      return res.status(401).json({ message: 'รหัสผ่านปัจจุบันไม่ถูกต้อง' });
-    }
-
-    // สร้าง hash รหัสผ่านใหม่
-    const saltRounds = 10;
-    const newPasswordHash = await bcrypt.hash(newPassword, saltRounds);
-
-    // อัพเดตรหัสผ่าน
-    await pool.query(
-      'UPDATE admins SET password_hash = $1, updated_at = CURRENT_TIMESTAMP WHERE admin_id = $2',
-      [newPasswordHash, admin_id]
-    );
-
-    res.status(200).json({ message: 'เปลี่ยนรหัสผ่านสำเร็จ' });
-  } catch (error) {
-    console.error('Error changing admin password:', error);
-    res.status(500).json({ message: 'เกิดข้อผิดพลาดในการเปลี่ยนรหัสผ่าน', error: error.message });
-  }
-};
 
 // เพิ่ม endpoint สำหรับตรวจสอบความถูกต้องของ token
 exports.verifyToken = async (req, res) => {
