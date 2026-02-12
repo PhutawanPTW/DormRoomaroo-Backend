@@ -79,7 +79,7 @@ const uploadImage = async (file, dormName = null) => {
       Metadata: {
         'uploaded-by': 'dormroomaroo-backend',
         'upload-date': new Date().toISOString(),
-        'dorm-name': dormName || 'profile',
+        'dorm-name': encodeURIComponent(dormName || 'profile'), // เข้ารหัส URL เพื่อรองรับตัวอักษรไทย
       }
     });
 
