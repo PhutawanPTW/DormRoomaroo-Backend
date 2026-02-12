@@ -16,7 +16,8 @@ async function verifyFirebaseToken(req, res, next) {
   
   try {
     console.log('Verifying Firebase ID token...');
-    const decodedToken = await firebaseAdmin.auth().verifyIdToken(idToken, true);
+    // เพิ่ม checkRevoked: false เพื่อลดการเรียก metadata server
+    const decodedToken = await firebaseAdmin.auth().verifyIdToken(idToken, false);
     console.log('Token verified successfully for user:', decodedToken.uid);
     req.user = decodedToken; // เก็บ decoded token ไว้ใน req.user
     next(); // ไปยัง Middleware หรือ Controller ถัดไป
@@ -40,10 +41,17 @@ async function verifyFirebaseToken(req, res, next) {
         message: 'Your session has been revoked. Please login again.'
       });
     }
+    if (error.message && error.message.includes('metadata.google.internal')) {
+      return res.status(401).json({ 
+        error: 'Unauthorized: Firebase service configuration error.', 
+        code: 'service-config-error',
+        message: 'Authentication service temporarily unavailable. Please try again.'
+      });
+    }
     return res.status(401).json({ 
       error: 'Unauthorized: Invalid ID token.', 
       code: 'token-invalid',
-      details: 'Credential implementation provided to initializeApp() via the "credential" property failed to fetch a valid Google OAuth2 access token with the following error: "Error fetching access token: Error while making request: getaddrinfo ENOTFOUND metadata.google.internal. Error code: ENOTFOUND".'
+      message: 'Invalid authentication token. Please login again.'
     });
   }
 }

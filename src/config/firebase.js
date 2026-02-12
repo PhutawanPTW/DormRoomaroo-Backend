@@ -36,10 +36,15 @@ if (process.env.FIREBASE_SERVICE_ACCOUNT_KEY) {
 if (!admin.apps.length) {
   admin.initializeApp({
     credential: admin.credential.cert(serviceAccount),
-    projectId: process.env.FIREBASE_PROJECT_ID || serviceAccount.project_id
+    projectId: process.env.FIREBASE_PROJECT_ID || serviceAccount.project_id,
+    // เพิ่มการตั้งค่าเพื่อแก้ปัญหา metadata.google.internal
+    httpAgent: undefined,
+    // บังคับใช้ service account credential แทน metadata server
+    serviceAccountId: serviceAccount.client_email
   });
   console.log('✅ Firebase Admin SDK initialized successfully (Authentication only)');
   console.log('📦 Storage: Using Cloudflare R2 instead of Firebase Storage');
+  console.log('🔑 Using service account:', serviceAccount.client_email);
 }
 
 // Export the default app
