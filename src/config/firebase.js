@@ -4,31 +4,56 @@ const path = require('path');
 require('dotenv').config();
 
 // 1. Load Service Account Keys
-const mainServiceAccountPath = process.env.FIREBASE_SERVICE_ACCOUNT_KEY_PATH || './firebase-admin-key.json';
-const storageServiceAccountPath = process.env.FIREBASE_STORAGE_SERVICE_ACCOUNT_KEY_PATH || './storage-admin-key.json';
-
 let mainServiceAccount, storageServiceAccount;
 
-try {
-  // แก้ไข path resolution ให้ถูกต้อง
-  const mainKeyPath = path.resolve(process.cwd(), mainServiceAccountPath);
-  mainServiceAccount = require(mainKeyPath);
-  console.log('Main Firebase service account loaded successfully from:', mainKeyPath);
-  console.log('Project ID:', mainServiceAccount.project_id);
-} catch (error) {
-  console.error('Error loading main Firebase service account key:', error);
-  console.error('Attempted path:', path.resolve(process.cwd(), mainServiceAccountPath));
-  process.exit(1);
+// Try to load from environment variable first, then from file
+if (process.env.FIREBASE_SERVICE_ACCOUNT_KEY) {
+  try {
+    mainServiceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_KEY);
+    console.log('Main Firebase service account loaded from environment variable');
+    console.log('Project ID:', mainServiceAccount.project_id);
+  } catch (error) {
+    console.error('Error parsing FIREBASE_SERVICE_ACCOUNT_KEY environment variable:', error);
+    process.exit(1);
+  }
+} else {
+  // Fallback to file
+  const mainServiceAccountPath = process.env.FIREBASE_SERVICE_ACCOUNT_KEY_PATH || './firebase-admin-key.json';
+  try {
+    const mainKeyPath = path.resolve(process.cwd(), mainServiceAccountPath);
+    mainServiceAccount = require(mainKeyPath);
+    console.log('Main Firebase service account loaded from file:', mainKeyPath);
+    console.log('Project ID:', mainServiceAccount.project_id);
+  } catch (error) {
+    console.error('Error loading main Firebase service account key from file:', error);
+    console.error('Attempted path:', path.resolve(process.cwd(), mainServiceAccountPath));
+    console.error('Please set FIREBASE_SERVICE_ACCOUNT_KEY environment variable or provide the key file');
+    process.exit(1);
+  }
 }
 
-try {
-  const storageKeyPath = path.resolve(process.cwd(), storageServiceAccountPath);
-  storageServiceAccount = require(storageKeyPath);
-  console.log('Storage Firebase service account loaded successfully from:', storageKeyPath);
-} catch (error) {
-  console.error('Error loading storage Firebase service account key:', error);
-  console.error('Attempted path:', path.resolve(process.cwd(), storageServiceAccountPath));
-  process.exit(1);
+// Load storage service account
+if (process.env.FIREBASE_STORAGE_SERVICE_ACCOUNT_KEY) {
+  try {
+    storageServiceAccount = JSON.parse(process.env.FIREBASE_STORAGE_SERVICE_ACCOUNT_KEY);
+    console.log('Storage Firebase service account loaded from environment variable');
+  } catch (error) {
+    console.error('Error parsing FIREBASE_STORAGE_SERVICE_ACCOUNT_KEY environment variable:', error);
+    process.exit(1);
+  }
+} else {
+  // Fallback to file
+  const storageServiceAccountPath = process.env.FIREBASE_STORAGE_SERVICE_ACCOUNT_KEY_PATH || './storage-admin-key.json';
+  try {
+    const storageKeyPath = path.resolve(process.cwd(), storageServiceAccountPath);
+    storageServiceAccount = require(storageKeyPath);
+    console.log('Storage Firebase service account loaded from file:', storageKeyPath);
+  } catch (error) {
+    console.error('Error loading storage Firebase service account key from file:', error);
+    console.error('Attempted path:', path.resolve(process.cwd(), storageServiceAccountPath));
+    console.error('Please set FIREBASE_STORAGE_SERVICE_ACCOUNT_KEY environment variable or provide the key file');
+    process.exit(1);
+  }
 }
 
 // 2. Initialize the default app (for Auth, etc.)
