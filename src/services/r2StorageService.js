@@ -46,10 +46,11 @@ const getFetch = async () => {
 /**
  * Upload file to Cloudflare R2 using AWS SDK v3
  * @param {object} file - The file object from multer (req.file).
- * @param {string} dormName - The dormitory name for folder organization.
+ * @param {string} folderType - Type of folder: 'profile', 'dorm', 'review', etc.
+ * @param {string} subFolder - Sub-folder name (optional, e.g., dorm name).
  * @returns {Promise<string>} The public URL of the uploaded file.
  */
-const uploadImage = async (file, dormName = null) => {
+const uploadImage = async (file, folderType = 'profile', subFolder = null) => {
   if (!file) {
     return null;
   }
@@ -61,10 +62,24 @@ const uploadImage = async (file, dormName = null) => {
     const shortName = originalName.replace(/\.[^/.]+$/, '').substring(0, 20);
     const uniqueFileName = `${uuidv4()}-${shortName}.${extension}`;
     
-    // เลือก path ตาม context
-    const folderPath = dormName 
-      ? `Dorm_Gallery/${dormName}` 
-      : `Profile_Roomaroo`;
+    // กำหนด folder structure ตามประเภท
+    let folderPath;
+    switch (folderType) {
+      case 'profile':
+        folderPath = 'User_Profiles';
+        break;
+      case 'dorm':
+        folderPath = subFolder ? `Dorm_Gallery/${subFolder}` : 'Dorm_Gallery/General';
+        break;
+      case 'review':
+        folderPath = subFolder ? `Review_Images/${subFolder}` : 'Review_Images/General';
+        break;
+      case 'admin':
+        folderPath = 'Admin_Uploads';
+        break;
+      default:
+        folderPath = 'Misc_Uploads';
+    }
     
     const objectKey = `${folderPath}/${uniqueFileName}`;
 
@@ -79,7 +94,8 @@ const uploadImage = async (file, dormName = null) => {
       Metadata: {
         'uploaded-by': 'dormroomaroo-backend',
         'upload-date': new Date().toISOString(),
-        'dorm-name': encodeURIComponent(dormName || 'profile'), // เข้ารหัส URL เพื่อรองรับตัวอักษรไทย
+        'folder-type': folderType,
+        'sub-folder': encodeURIComponent(subFolder || 'none'), // เข้ารหัส URL เพื่อรองรับตัวอักษรไทย
       }
     });
 
@@ -112,7 +128,26 @@ const uploadImage = async (file, dormName = null) => {
  * @returns {Promise<string>} The public URL of the uploaded file.
  */
 const uploadDormitoryImage = (file, dormName) => {
-  return uploadImage(file, dormName);
+  return uploadImage(file, 'dorm', dormName);
+};
+
+/**
+ * Uploads user profile image to R2 Storage in User_Profiles folder.
+ * @param {object} file - The file object from multer (req.file).
+ * @returns {Promise<string>} The public URL of the uploaded file.
+ */
+const uploadProfileImage = (file) => {
+  return uploadImage(file, 'profile');
+};
+
+/**
+ * Uploads review image to R2 Storage in Review_Images folder.
+ * @param {object} file - The file object from multer (req.file).
+ * @param {string} dormName - The dormitory name for folder organization.
+ * @returns {Promise<string>} The public URL of the uploaded file.
+ */
+const uploadReviewImage = (file, dormName) => {
+  return uploadImage(file, 'review', dormName);
 };
 
 /**
@@ -173,6 +208,8 @@ const listFiles = async (prefix = '') => {
 module.exports = {
   uploadImage,
   uploadDormitoryImage,
+  uploadProfileImage,
+  uploadReviewImage,
   deleteImage,
   listFiles,
 };

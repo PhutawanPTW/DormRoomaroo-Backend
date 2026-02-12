@@ -131,7 +131,7 @@ exports.registerWithEmail = async (req, res) => {
 
   let photoUrl = null;
   if (req.file) {
-    photoUrl = await storageService.uploadImage(req.file);
+    photoUrl = await storageService.uploadProfileImage(req.file);
   }
 
   const client = await pool.connect();

@@ -211,8 +211,8 @@ exports.uploadProfileImage = async (req, res) => {
 
     await client.query('BEGIN');
 
-    // อัพโหลดรูปไปยัง Firebase Storage
-    const imageUrl = await storageService.uploadImage(req.file);
+    // อัพโหลดรูปไปยัง R2 Storage
+    const imageUrl = await storageService.uploadProfileImage(req.file);
 
     // อัพเดต URL รูปในฐานข้อมูล
     await client.query(
