@@ -1,7 +1,7 @@
 // src/controllers/dormitoryController.js
 const pool = require("../db");
 const { updateDormitoryPriceRange } = require('./editDormitoryController');
-const storageService = require("../services/storageService");
+const storageService = require("../services/r2StorageService"); // เปลี่ยนไปใช้ R2
 
 // ฟังก์ชันดึงชื่อ amenity จาก ID (จากฐานข้อมูล)
 const getAmenityNameById = async (amenityId) => {

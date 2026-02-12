@@ -1,6 +1,6 @@
 const firebaseAdmin = require('../config/firebase').default;
 const userService = require('../services/userService');
-const storageService = require('../services/storageService');
+const storageService = require('../services/r2StorageService'); // เปลี่ยนไปใช้ R2
 const { generateUsernameFromEmail } = userService;
 const pool = require('../db');
 

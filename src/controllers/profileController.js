@@ -1,7 +1,7 @@
 // src/controllers/profileController.js
 const pool = require("../db");
 const bcrypt = require("bcrypt");
-const storageService = require("../services/storageService");
+const storageService = require("../services/r2StorageService"); // เปลี่ยนไปใช้ R2
 
 
 // ดึงข้อมูลโปรไฟล์ผู้ใช้

@@ -1,6 +1,6 @@
 // src/controllers/AddDormitoryController.js
 const pool = require("../db");
-const storageService = require("../services/storageService");
+const storageService = require("../services/r2StorageService"); // เปลี่ยนไปใช้ R2
 
 function normalizeBasicFields(req) {
   const body = req.body || {};
