@@ -1,20 +1,25 @@
-const AWS = require('aws-sdk');
+const { S3Client, PutObjectCommand, DeleteObjectCommand, ListObjectsV2Command } = require('@aws-sdk/client-s3');
 const { v4: uuidv4 } = require('uuid');
 
-// Configure AWS SDK for Cloudflare R2
-const s3 = new AWS.S3({
-  endpoint: process.env.R2_ENDPOINT,
-  accessKeyId: process.env.R2_ACCESS_KEY_ID,
-  secretAccessKey: process.env.R2_SECRET_ACCESS_KEY,
+// Cloudflare R2 Configuration using AWS SDK v3
+const R2_ENDPOINT = process.env.R2_ENDPOINT;
+const R2_ACCESS_KEY = process.env.R2_ACCESS_KEY_ID; // S3 Access Key
+const R2_SECRET_KEY = process.env.R2_SECRET_ACCESS_KEY; // S3 Secret Key
+const R2_BUCKET = process.env.R2_BUCKET_NAME;
+const R2_PUBLIC_DOMAIN = process.env.R2_PUBLIC_DOMAIN;
+
+// Create S3 client for R2
+const s3Client = new S3Client({
   region: 'auto',
-  signatureVersion: 'v4',
-  s3ForcePathStyle: true, // Required for R2
+  endpoint: R2_ENDPOINT,
+  credentials: {
+    accessKeyId: R2_ACCESS_KEY,
+    secretAccessKey: R2_SECRET_KEY,
+  },
+  forcePathStyle: true,
 });
 
-const bucketName = process.env.R2_BUCKET_NAME;
-const publicDomain = process.env.R2_PUBLIC_DOMAIN;
-
-if (!bucketName || !process.env.R2_ACCESS_KEY_ID || !process.env.R2_SECRET_ACCESS_KEY) {
+if (!R2_ENDPOINT || !R2_ACCESS_KEY || !R2_SECRET_KEY || !R2_BUCKET) {
   console.error('❌ R2 environment variables are required:');
   console.error('- R2_ENDPOINT');
   console.error('- R2_ACCESS_KEY_ID');
@@ -24,11 +29,22 @@ if (!bucketName || !process.env.R2_ACCESS_KEY_ID || !process.env.R2_SECRET_ACCES
 }
 
 console.log('✅ R2 Storage configured successfully');
-console.log('Bucket:', bucketName);
-console.log('Endpoint:', process.env.R2_ENDPOINT);
+console.log('Bucket:', R2_BUCKET);
+console.log('Endpoint:', R2_ENDPOINT);
 
 /**
- * Uploads a file to Cloudflare R2 and returns the public URL.
+ * Initialize fetch dynamically
+ */
+const getFetch = async () => {
+  if (!fetch) {
+    const { default: nodeFetch } = await import('node-fetch');
+    fetch = nodeFetch;
+  }
+  return fetch;
+};
+
+/**
+ * Upload file to Cloudflare R2 using AWS SDK v3
  * @param {object} file - The file object from multer (req.file).
  * @param {string} dormName - The dormitory name for folder organization.
  * @returns {Promise<string>} The public URL of the uploaded file.
@@ -50,33 +66,33 @@ const uploadImage = async (file, dormName = null) => {
       ? `Dorm_Gallery/${dormName}` 
       : `Profile_Roomaroo`;
     
-    const key = `${folderPath}/${uniqueFileName}`;
+    const objectKey = `${folderPath}/${uniqueFileName}`;
 
-    // Upload to R2
-    const uploadParams = {
-      Bucket: bucketName,
-      Key: key,
+    console.log('Uploading to R2:', objectKey);
+
+    // Upload using AWS SDK v3
+    const command = new PutObjectCommand({
+      Bucket: R2_BUCKET,
+      Key: objectKey,
       Body: file.buffer,
       ContentType: file.mimetype,
-      // Metadata for better organization
       Metadata: {
         'uploaded-by': 'dormroomaroo-backend',
         'upload-date': new Date().toISOString(),
         'dorm-name': dormName || 'profile',
       }
-    };
+    });
 
-    console.log('Uploading to R2:', key);
-    const result = await s3.upload(uploadParams).promise();
-    
+    await s3Client.send(command);
+
     // Generate public URL
     let publicUrl;
-    if (publicDomain) {
-      publicUrl = `${publicDomain}/${key}`;
+    if (R2_PUBLIC_DOMAIN) {
+      publicUrl = `${R2_PUBLIC_DOMAIN}/${objectKey}`;
     } else {
-      // Use R2 public URL format
-      const accountId = process.env.R2_ENDPOINT.match(/https:\/\/(.+?)\.r2\.cloudflarestorage\.com/)?.[1];
-      publicUrl = `https://pub-${accountId}.r2.dev/${key}`;
+      // Extract account ID from endpoint for pub URL
+      const accountId = R2_ENDPOINT.match(/https:\/\/(.+?)\.r2\.cloudflarestorage\.com/)?.[1];
+      publicUrl = `https://pub-${accountId}.r2.dev/${objectKey}`;
     }
 
     console.log('✅ File uploaded successfully to R2');
@@ -106,24 +122,24 @@ const uploadDormitoryImage = (file, dormName) => {
  */
 const deleteImage = async (fileUrl) => {
   try {
-    // Extract key from URL
+    // Extract object key from URL
     const url = new URL(fileUrl);
-    let key;
+    let objectKey;
     
-    if (publicDomain && fileUrl.includes(publicDomain)) {
-      key = url.pathname.substring(1); // Remove leading slash
+    if (R2_PUBLIC_DOMAIN && fileUrl.includes(R2_PUBLIC_DOMAIN)) {
+      objectKey = url.pathname.substring(1); // Remove leading slash
     } else {
       // Handle R2 public URL format
-      key = url.pathname.substring(1);
+      objectKey = url.pathname.substring(1);
     }
 
-    const deleteParams = {
-      Bucket: bucketName,
-      Key: key,
-    };
+    const command = new DeleteObjectCommand({
+      Bucket: R2_BUCKET,
+      Key: objectKey,
+    });
 
-    await s3.deleteObject(deleteParams).promise();
-    console.log('✅ File deleted successfully from R2:', key);
+    await s3Client.send(command);
+    console.log('✅ File deleted successfully from R2:', objectKey);
     return true;
 
   } catch (error) {
@@ -139,14 +155,14 @@ const deleteImage = async (fileUrl) => {
  */
 const listFiles = async (prefix = '') => {
   try {
-    const params = {
-      Bucket: bucketName,
+    const command = new ListObjectsV2Command({
+      Bucket: R2_BUCKET,
       Prefix: prefix,
       MaxKeys: 100,
-    };
+    });
 
-    const result = await s3.listObjectsV2(params).promise();
-    return result.Contents || [];
+    const response = await s3Client.send(command);
+    return response.Contents || [];
 
   } catch (error) {
     console.error('❌ R2 list error:', error);
