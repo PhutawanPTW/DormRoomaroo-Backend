@@ -15,11 +15,16 @@ async function verifyFirebaseToken(req, res, next) {
   // Avoid logging tokens
   
   try {
+    console.log('Verifying Firebase ID token...');
     const decodedToken = await firebaseAdmin.auth().verifyIdToken(idToken, true);
+    console.log('Token verified successfully for user:', decodedToken.uid);
     req.user = decodedToken; // เก็บ decoded token ไว้ใน req.user
     next(); // ไปยัง Middleware หรือ Controller ถัดไป
   } catch (error) {
     console.error('Error verifying Firebase ID token:', error);
+    console.error('Error code:', error.code);
+    console.error('Error message:', error.message);
+    
     // แจ้ง Error ตามประเภท เช่น expired token
     if (error.code === 'auth/id-token-expired') {
       return res.status(401).json({ 
@@ -38,7 +43,7 @@ async function verifyFirebaseToken(req, res, next) {
     return res.status(401).json({ 
       error: 'Unauthorized: Invalid ID token.', 
       code: 'token-invalid',
-      details: error.message 
+      details: 'Credential implementation provided to initializeApp() via the "credential" property failed to fetch a valid Google OAuth2 access token with the following error: "Error fetching access token: Error while making request: getaddrinfo ENOTFOUND metadata.google.internal. Error code: ENOTFOUND".'
     });
   }
 }

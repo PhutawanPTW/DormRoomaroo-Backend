@@ -4,32 +4,30 @@ const path = require('path');
 require('dotenv').config();
 
 // 1. Load Service Account Keys
-const mainServiceAccountPath = process.env.FIREBASE_SERVICE_ACCOUNT_KEY_PATH || '../../firebase-admin-key.json';
-const storageServiceAccountPath = process.env.FIREBASE_STORAGE_SERVICE_ACCOUNT_KEY_PATH || '../../storage-admin-key.json';
+const mainServiceAccountPath = process.env.FIREBASE_SERVICE_ACCOUNT_KEY_PATH || './firebase-admin-key.json';
+const storageServiceAccountPath = process.env.FIREBASE_STORAGE_SERVICE_ACCOUNT_KEY_PATH || './storage-admin-key.json';
 
 let mainServiceAccount, storageServiceAccount;
 
 try {
-  // ใช้ path.resolve เพื่อแก้ปัญหา path ไม่ถูกต้อง
-  const mainKeyPath = path.resolve(__dirname, mainServiceAccountPath.startsWith('./') ? 
-    '../..' + mainServiceAccountPath.substring(1) : mainServiceAccountPath);
-  
-  mainServiceAccount = require(mainServiceAccountPath.startsWith('./') ? 
-    path.resolve(__dirname, '../..', mainServiceAccountPath.substring(2)) : mainServiceAccountPath);
-    
-  console.log('Main Firebase service account loaded successfully.');
+  // แก้ไข path resolution ให้ถูกต้อง
+  const mainKeyPath = path.resolve(process.cwd(), mainServiceAccountPath);
+  mainServiceAccount = require(mainKeyPath);
+  console.log('Main Firebase service account loaded successfully from:', mainKeyPath);
+  console.log('Project ID:', mainServiceAccount.project_id);
 } catch (error) {
   console.error('Error loading main Firebase service account key:', error);
+  console.error('Attempted path:', path.resolve(process.cwd(), mainServiceAccountPath));
   process.exit(1);
 }
 
 try {
-  storageServiceAccount = require(storageServiceAccountPath.startsWith('./') ? 
-    path.resolve(__dirname, '../..', storageServiceAccountPath.substring(2)) : storageServiceAccountPath);
-    
-  console.log('Storage Firebase service account loaded successfully.');
+  const storageKeyPath = path.resolve(process.cwd(), storageServiceAccountPath);
+  storageServiceAccount = require(storageKeyPath);
+  console.log('Storage Firebase service account loaded successfully from:', storageKeyPath);
 } catch (error) {
   console.error('Error loading storage Firebase service account key:', error);
+  console.error('Attempted path:', path.resolve(process.cwd(), storageServiceAccountPath));
   process.exit(1);
 }
 
