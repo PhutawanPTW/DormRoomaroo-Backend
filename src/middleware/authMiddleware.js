@@ -1,5 +1,5 @@
 // src/middleware/authMiddleware.js
-const firebaseAdmin = require('../config/firebase').default; // Use the default app
+const firebaseAdmin = require('../config/firebase'); // Use the default app
 const pool = require('../db');
 
 async function verifyFirebaseToken(req, res, next) {

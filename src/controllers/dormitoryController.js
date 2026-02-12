@@ -972,7 +972,7 @@ exports.uploadDormitoryImages = async (req, res) => {
 
     for (let i = 0; i < req.files.length; i++) {
       const file = req.files[i];
-      // อัปโหลดไป Firebase Storage ในโฟลเดอร์ Dorm_Gallery/{ชื่อหอพัก}
+      // อัปโหลดไป Cloudflare R2 Storage ในโฟลเดอร์ Dorm_Gallery/{ชื่อหอพัก}
       const imageUrl = await storageService.uploadDormitoryImage(file, dormName);
 
       // รูปแรกเป็น primary (ภาพหลักของหอพัก)

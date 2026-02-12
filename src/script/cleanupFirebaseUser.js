@@ -1,5 +1,5 @@
 // ลบ Firebase user ที่ register ไม่สำเร็จ
-const admin = require('../config/firebase').default;
+const admin = require('../config/firebase');
 
 async function deleteFirebaseUserByEmail(email) {
   try {
